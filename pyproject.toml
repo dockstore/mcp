@@ -21,6 +21,10 @@ classifiers = [
 dependencies = [
     "fastmcp>=4.0.3,<5",
     "pydantic-settings>=2.7",
+    # cryptography (pulled in via fastmcp -> authlib) ships arm64-only macOS wheels
+    # from 49.0.0 on. Without this pin, Intel macs fall back to the sdist and need a
+    # Rust toolchain plus OpenSSL headers to build it.
+    "cryptography<49; platform_system == 'Darwin' and platform_machine == 'x86_64'",
 ]
 
 [project.optional-dependencies]
