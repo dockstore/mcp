@@ -1,0 +1,14 @@
+# Runs the Dockstore MCP server on its own. Point it at whichever Dockstore
+# instance you are developing against, for example:
+#
+#   DOCKSTORE_URL=http://host.docker.internal:8080 docker compose up --build
+services:
+  mcp:
+    build: .
+    image: dockstore/dockstore-mcp:local
+    ports:
+      - "${MCP_PORT:-8000}:8000"
+    environment:
+      DOCKSTORE_MCP_DOCKSTORE_URL: "${DOCKSTORE_URL:-https://dockstore.org}"
+      DOCKSTORE_MCP_LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    restart: unless-stopped
