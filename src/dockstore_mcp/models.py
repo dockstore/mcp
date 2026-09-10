@@ -118,6 +118,8 @@ class Entry(BaseModel):
     categories: list[str] | None = Field(default=None, description="Categories the entry has been placed in.")
     edam_topics: list[str] | None = Field(default=None, description="EDAM topics, the subject areas of the entry.")
     edam_operations: list[str] | None = Field(default=None, description="EDAM operations the entry performs.")
+    input_formats: list[str] | None = Field(default=None, description="EDAM formats the entry accepts as input.")
+    output_formats: list[str] | None = Field(default=None, description="EDAM formats the entry produces as output.")
     registry: str | None = Field(default=None, description="Image or workflow registry hosting the entry.")
     source_control: str | None = Field(default=None, description="Source control provider the descriptor lives in.")
     is_published: bool | None = Field(default=None, description="Whether the entry is publicly visible.")
@@ -125,6 +127,7 @@ class Entry(BaseModel):
     star_count: int | None = Field(default=None, description="How many users have starred the entry.")
     default_version: str | None = Field(default=None, description="Name of the version served by default.")
     version_ids: list[str] | None = Field(default=None, description="Version identifiers; pass one to get_version.")
+    doi: str | None = Field(default=None, description="Concept DOI for the entry as a whole, if there is one.")
     created_at: datetime | None = Field(default=None, description="When the entry was registered.")
     updated_at: datetime | None = Field(default=None, description="When the entry was last modified.")
     url: str | None = Field(default=None, description="Address of the entry's page on Dockstore.")
@@ -145,8 +148,6 @@ class Version(BaseModel):
     )
     descriptor_path: str | None = Field(default=None, description="Path of the primary descriptor within the version.")
     file_paths: list[str] | None = Field(default=None, description="Paths of the files; pass one to get_file.")
-    input_formats: list[str] | None = Field(default=None, description="EDAM formats the version accepts as input.")
-    output_formats: list[str] | None = Field(default=None, description="EDAM formats the version produces as output.")
     is_valid: bool | None = Field(default=None, description="Whether Dockstore could parse the descriptor.")
     is_verified: bool | None = Field(default=None, description="Whether the version has been verified.")
     is_frozen: bool | None = Field(default=None, description="Whether the version is a snapshot and cannot change.")
@@ -187,6 +188,8 @@ class EntryField(StrEnum):
     CATEGORIES = "categories"
     EDAM_TOPICS = "edam_topics"
     EDAM_OPERATIONS = "edam_operations"
+    INPUT_FORMATS = "input_formats"
+    OUTPUT_FORMATS = "output_formats"
     REGISTRY = "registry"
     SOURCE_CONTROL = "source_control"
     IS_PUBLISHED = "is_published"
@@ -194,6 +197,7 @@ class EntryField(StrEnum):
     STAR_COUNT = "star_count"
     DEFAULT_VERSION = "default_version"
     VERSION_IDS = "version_ids"
+    DOI = "doi"
     CREATED_AT = "created_at"
     UPDATED_AT = "updated_at"
     URL = "url"
@@ -209,8 +213,6 @@ class VersionField(StrEnum):
     DESCRIPTOR_TYPE = "descriptor_type"
     DESCRIPTOR_PATH = "descriptor_path"
     FILE_PATHS = "file_paths"
-    INPUT_FORMATS = "input_formats"
-    OUTPUT_FORMATS = "output_formats"
     IS_VALID = "is_valid"
     IS_VERIFIED = "is_verified"
     IS_FROZEN = "is_frozen"
