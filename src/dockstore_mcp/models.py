@@ -116,10 +116,10 @@ class Entry(BaseModel):
     authors: list[str] | None = Field(default=None, description="Authors credited on the entry.")
     labels: list[str] | None = Field(default=None, description="Free-form labels applied to the entry.")
     categories: list[str] | None = Field(default=None, description="Categories the entry has been placed in.")
-    edam_topics: list[str] | None = Field(default=None, description="EDAM topics, the subject areas of the entry.")
-    edam_operations: list[str] | None = Field(default=None, description="EDAM operations the entry performs.")
-    input_formats: list[str] | None = Field(default=None, description="EDAM formats the entry accepts as input.")
-    output_formats: list[str] | None = Field(default=None, description="EDAM formats the entry produces as output.")
+    subject_areas: list[str] | None = Field(default=None, description="Subject areas the entry works in.")
+    operations: list[str] | None = Field(default=None, description="Operations the entry performs.")
+    input_formats: list[str] | None = Field(default=None, description="File formats the entry accepts as input.")
+    output_formats: list[str] | None = Field(default=None, description="File formats the entry produces as output.")
     registry: str | None = Field(default=None, description="Image or workflow registry hosting the entry.")
     source_control: str | None = Field(default=None, description="Source control provider the descriptor lives in.")
     is_published: bool | None = Field(default=None, description="Whether the entry is publicly visible.")
@@ -186,8 +186,8 @@ class EntryField(StrEnum):
     AUTHORS = "authors"
     LABELS = "labels"
     CATEGORIES = "categories"
-    EDAM_TOPICS = "edam_topics"
-    EDAM_OPERATIONS = "edam_operations"
+    SUBJECT_AREAS = "subject_areas"
+    OPERATIONS = "operations"
     INPUT_FORMATS = "input_formats"
     OUTPUT_FORMATS = "output_formats"
     REGISTRY = "registry"

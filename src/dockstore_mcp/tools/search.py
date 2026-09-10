@@ -55,8 +55,8 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         description: str | None = None,
         author: str | None = None,
         organization: str | None = None,
-        edam_topic: str | None = None,
-        edam_operation: str | None = None,
+        subject_area: str | None = None,
+        operation: str | None = None,
         input_format: str | None = None,
         output_format: str | None = None,
         entry_type: EntryType | None = None,
@@ -83,8 +83,8 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             description: Keywords to look for in the entry's topic and description.
             author: Name of an author or maintainer of the entry.
             organization: Organization the entry belongs to.
-            edam_topic: EDAM topic, the subject area an entry works in, such as 'Genomics'.
-            edam_operation: EDAM operation an entry performs, such as 'Sequence alignment'.
+            subject_area: Subject area an entry works in, such as 'Genomics'.
+            operation: Operation an entry performs, such as 'Sequence alignment'.
             input_format: File format an entry takes as input, such as 'FASTQ'.
             output_format: File format an entry produces, such as 'VCF'.
             entry_type: Restrict results to one kind of entry.
