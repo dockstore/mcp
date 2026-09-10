@@ -21,10 +21,16 @@ from starlette.testclient import TestClient
 from dockstore_mcp import __version__
 
 
-async def test_hello_is_advertised(client: Client[Any]) -> None:
+async def test_every_tool_is_advertised(client: Client[Any]) -> None:
     async with client:
         tools = await client.list_tools()
-    assert [tool.name for tool in tools] == ["hello"]
+    assert sorted(tool.name for tool in tools) == [
+        "get_entry",
+        "get_file",
+        "get_version",
+        "hello",
+        "search_entries",
+    ]
 
 
 async def test_hello_greets_by_name(client: Client[Any]) -> None:
