@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "OICR", email = "dockstore@ga4gh.org" }]
+authors = [{ name = "OICR", email = "dockstore@ga4gh.org" }, { name = "UCSC" }]
 keywords = ["dockstore", "mcp", "trs", "ga4gh", "workflows"]
 classifiers = [
     "Development Status :: 3 - Alpha",

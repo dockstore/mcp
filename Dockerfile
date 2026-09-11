@@ -1,4 +1,4 @@
-#    Copyright 2026 OICR
+#    Copyright 2026 OICR and UCSC
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
 #    you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ LABEL org.opencontainers.image.title="dockstore-mcp" \
       org.opencontainers.image.url="https://dockstore.org" \
       org.opencontainers.image.source="https://github.com/dockstore/mcp" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.vendor="OICR"
+      org.opencontainers.image.vendor="OICR and UCSC"
 
 RUN apt-get update \
     && apt-get upgrade -y \
