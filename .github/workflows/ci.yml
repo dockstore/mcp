@@ -32,6 +32,23 @@ jobs:
       - name: Test
         run: pytest
 
+  git-secrets:
+    name: git-secrets scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install git-secrets
+        working-directory: /tmp
+        run: |
+          wget --no-verbose -O git-secrets-1.3.0.tar.gz https://github.com/awslabs/git-secrets/archive/1.3.0.tar.gz
+          tar -zxf git-secrets-1.3.0.tar.gz
+          cd git-secrets-1.3.0
+          sudo make install
+      - name: Register hooks and patterns
+        run: bash scripts/install-git-hooks.sh
+      - name: Scan
+        run: git secrets --scan
+
   docker:
     name: Build image
     runs-on: ubuntu-latest

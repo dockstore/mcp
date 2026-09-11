@@ -1,4 +1,4 @@
-.PHONY: help install test lint format typecheck check run run-http docker-build docker-run clean
+.PHONY: help install git-hooks test lint format typecheck check run run-http docker-build docker-run clean
 
 VENV ?= .venv
 PY   ?= $(VENV)/bin/python
@@ -11,9 +11,12 @@ help: ## Show this help
 $(VENV): ## Create the development virtualenv
 	python3 -m venv $(VENV)
 
-install: $(VENV) ## Install the package and development dependencies
+install: $(VENV) git-hooks ## Install the package and development dependencies
 	$(PIP) install --upgrade pip
 	$(PIP) install -e '.[dev]'
+
+git-hooks: ## Register the git-secrets hooks (requires git-secrets)
+	bash scripts/install-git-hooks.sh
 
 test: ## Run the test suite
 	$(VENV)/bin/pytest

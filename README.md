@@ -175,6 +175,19 @@ make format     # apply ruff formatting and safe fixes
 Tests use FastMCP's in-memory client, so they exercise real tool dispatch without
 starting a server or opening a socket.
 
+### Installing git-secrets
+
+Dockstore uses [git-secrets](https://github.com/awslabs/git-secrets) to help make sure
+that keys and private data stay out of the source tree. For information on installing it
+on your platform check <https://github.com/awslabs/git-secrets#id6>.
+
+If you're on mac with homebrew use `brew install git-secrets`.
+
+With git-secrets on your path, `make install` (or `make git-hooks`) registers the AWS
+patterns and points `core.hookspath` at [git-hooks/](git-hooks), so the scan runs on
+every commit. CI runs `git secrets --scan` over the whole repository as well. False
+positives can be listed in [.gitallowed](.gitallowed).
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
