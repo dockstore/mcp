@@ -12,14 +12,30 @@ venv/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.dmypy.json
+.tox/
+.nox/
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
 
 # Local configuration
 .env
+.env.local
+.env.*.local
+!.env.example
 
 # Editors / OS
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
 .DS_Store
+._*
+Thumbs.db
+
+# Agent tooling
+.claude/settings.local.json
+CLAUDE.local.md
