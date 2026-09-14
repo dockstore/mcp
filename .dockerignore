@@ -1,0 +1,49 @@
+# Version control and CI
+.git
+.gitignore
+.gitallowed
+.github
+.dockerignore
+git-hooks
+scripts
+
+# Python
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+.eggs
+build
+dist
+.venv
+venv
+
+# Tooling
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.dmypy.json
+.tox
+.nox
+.coverage
+.coverage.*
+coverage.xml
+htmlcov
+
+# Not needed in the image
+tests
+docker-compose.yml
+Makefile
+
+# Local configuration
+.env
+.env.*
+
+# Editors / OS
+.idea
+.vscode
+.claude
+**/*.swp
+**/*.swo
+.DS_Store
+**/._*
+Thumbs.db
