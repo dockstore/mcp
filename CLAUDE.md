@@ -1,0 +1,87 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+An MCP (Model Context Protocol) server, built on FastMCP 4, that exposes Dockstore
+(a registry of bioinformatics tools/workflows in CWL, WDL, Nextflow, Galaxy) to AI
+assistants. It is a standalone process deployed alongside the Dockstore webservice,
+talking to Dockstore's GA4GH Tool Registry Service (TRS) API and its own proprietary API.
+
+**Status: scaffold.** Only the `hello` tool has a working body. The four Dockstore
+tools (`search_entries`, `get_entry`, `get_version`, `get_file`) are fully declared
+(names, arguments, response models, docstrings) but each raises `NotImplementedError`
+until wired up to the real Dockstore API.
+
+## Commands
+
+```bash
+make install      # create .venv and install package + dev deps (also registers git-secrets hooks)
+make test         # run pytest
+make lint         # ruff check + ruff format --check
+make format       # ruff check --fix + ruff format
+make typecheck    # mypy (strict mode)
+make check        # everything CI runs: lint, typecheck, test
+make run          # run the server over stdio
+make run-http     # run the server over HTTP on port 8000
+```
+
+Run a single test with pytest directly (no Makefile target for this):
+
+```bash
+.venv/bin/pytest tests/test_tools.py::test_search_takes_every_facet
+.venv/bin/pytest -k "hello"
+```
+
+Tests use FastMCP's in-memory `Client`/`FastMCP` pairing (see `tests/conftest.py`), so
+they exercise real tool dispatch without a socket or subprocess.
+
+## Architecture
+
+- `src/dockstore_mcp/server.py` — `create_server(settings)` builds the `FastMCP`
+  instance, adds the `/health` route, and calls `register_all`. There's also a
+  module-level `mcp` instance for `fastmcp run dockstore_mcp.server:mcp`.
+- `src/dockstore_mcp/config.py` — `Settings` (pydantic-settings), env-prefixed
+  `DOCKSTORE_MCP_*`, also readable from `.env`. CLI flags (parsed in `__main__.py`)
+  override the environment. Derives `trs_url` and `api_url` from `dockstore_url`.
+- `src/dockstore_mcp/models.py` — Pydantic models/enums shared by the tools (`Entry`,
+  `Version`, `File`, and per-model `*Field` StrEnums used to let callers select which
+  fields to get back). Every field on `Entry`/`Version`/`File` is optional by design:
+  a response only populates the fields the caller asked for. `test_tools.py`'s
+  `test_selectable_fields_match_their_model` enforces that each `*Field` enum's
+  members exactly match its model's fields — keep them in sync when editing either.
+- `src/dockstore_mcp/tools/` — one module per cohesive tool group, each exposing
+  `register(mcp: FastMCP, settings: Settings) -> None`. `tools/__init__.py`'s
+  `register_all` calls each in turn; new tool modules must be added there.
+  - `hello.py` — smoke-test tool, implemented.
+  - `search.py` — `search_entries`, the Dockstore Search page equivalent.
+  - `entries.py` — `get_entry` → `get_version` → `get_file`, a lookup chain: an
+    entry's `version_ids` feed `get_version`, whose `file_paths` feed `get_file`.
+- `src/dockstore_mcp/__main__.py` — CLI entry point (`dockstore-mcp`); layers argparse
+  flags over env-derived `Settings`, then runs the server over stdio or HTTP.
+
+### Adding a tool
+
+Add a module under `src/dockstore_mcp/tools/` exposing `register(mcp, settings)`,
+and call it from `register_all` in `tools/__init__.py`. Group related tools in one
+module. Write tool docstrings for the model that will read them (what it returns,
+when to reach for it), not for a human API reference. FastMCP can also generate
+tools directly from an OpenAPI spec (`FastMCP.from_openapi`), which may be the right
+way to cover large parts of the Dockstore API instead of hand-writing tools.
+
+### Transports
+
+- **stdio** (default): client launches the server as a subprocess.
+- **http**: long-lived service, serves `/mcp` (streamable HTTP) and `/health`
+  (liveness probe). This is how it's deployed (see `Dockerfile`, `docker-compose.yml`).
+
+## Conventions
+
+- Line length 120, target Python 3.11, ruff rule set `E, F, W, I, N, UP, B, C4, SIM, RUF`.
+- mypy runs in `strict` mode over `src` and `tests`.
+- Every source file carries the Apache-2.0 header block (see any existing file for
+  the exact text) — keep it when adding new modules.
+- `git-secrets` scans for AWS credential patterns on commit (hooks in `git-hooks/`,
+  registered by `make install` / `make git-hooks`) and again in CI over the whole
+  repo. False positives go in `.gitallowed`.
