@@ -1,6 +1,9 @@
 name: Tagged release deploy
 
 on:
+  push:
+    tags:
+      - '**'
   workflow_dispatch:
 
 
