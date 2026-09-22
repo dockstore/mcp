@@ -13,10 +13,10 @@ MCP, so it is deployed alongside the Dockstore webservice rather than inside it.
 
 It is built on [FastMCP](https://gofastmcp.com) 4 and ships as a container image.
 
-> **Status: scaffold.** The only tool with a body is `hello`, which reports the
-> configured Dockstore instance and proves the plumbing end to end. The four Dockstore
-> tools are declared — names, arguments, and response shapes — but each one raises
-> `NotImplementedError` until it is wired up to the Dockstore API.
+> **Status: scaffold.** `hello`, `get_trs_info`, and `list_tool_classes` have working
+> bodies; the other four Dockstore tools are declared — names, arguments, and response
+> shapes — but each one raises `NotImplementedError` until it is wired up to the
+> Dockstore API.
 
 ## Requirements
 
@@ -124,24 +124,28 @@ and does not check PyPI for updates on startup; see the
 
 ## Tools
 
-| Tool             | Description                                                                      |
-| ---------------- | -------------------------------------------------------------------------------- |
-| `hello`          | Greets the caller and reports the Dockstore instance and server version. No I/O.  |
-| `search_entries` | Searches entries by keyword and facet, the equivalent of the site's Search page.  |
-| `get_entry`      | Retrieves the requested fields of one entry.                                      |
-| `get_version`    | Retrieves the requested fields of one version of an entry.                        |
-| `get_file`       | Retrieves the requested fields of one file belonging to a version.                |
+| Tool                | Description                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------- |
+| `hello`             | Greets the caller and reports the Dockstore instance and server version. No I/O.      |
+| `get_trs_info`      | Describes this instance's GA4GH TRS API: identifiers, version, and operator.          |
+| `list_tool_classes` | Lists the tool classes (e.g. `Workflow`) this instance's TRS API sorts entries into.   |
+| `search_entries`    | Searches entries by keyword and facet, the equivalent of the site's Search page.      |
+| `get_entry`         | Retrieves the requested fields of one entry.                                          |
+| `get_version`       | Retrieves the requested fields of one version of an entry.                            |
+| `get_file`          | Retrieves the requested fields of one file belonging to a version.                    |
 
-The last four are scaffolding and are not implemented yet. They are a chain:
-`search_entries` yields entry identifiers, an entry yields version identifiers, and a
-version yields file paths. Each lookup takes a list of fields so that a caller can ask
-for a name and a date without also pulling down a README or a whole descriptor.
+`get_trs_info` and `list_tool_classes` call Dockstore's GA4GH TRS V2 API directly. The
+last four are scaffolding and are not implemented yet. They are a chain: `search_entries`
+yields entry identifiers, an entry yields version identifiers, and a version yields file
+paths. Each lookup takes a list of fields so that a caller can ask for a name and a date
+without also pulling down a README or a whole descriptor.
 
 ## Layout
 
 ```
 src/dockstore_mcp/
 ├── __main__.py      command line entry point (`dockstore-mcp`)
+├── casing.py        camelCase JSON -> snake_case models, for API-backed tools
 ├── config.py        settings, read from the environment
 ├── models.py        entry, version, and file types shared by the tools
 ├── server.py        server construction, /health route
@@ -149,7 +153,8 @@ src/dockstore_mcp/
     ├── __init__.py  registers every tool group
     ├── entries.py   get_entry, get_version, get_file
     ├── hello.py     the hello tool
-    └── search.py    search_entries
+    ├── search.py    search_entries
+    └── trs.py       get_trs_info, list_tool_classes
 tests/               pytest suite, using FastMCP's in-memory client
 Dockerfile           two-stage build of the deployable image
 ```

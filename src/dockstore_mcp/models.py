@@ -35,8 +35,12 @@ __all__ = [
     "EntryType",
     "File",
     "FileField",
+    "ServiceOrganization",
+    "ServiceType",
     "SortBy",
     "SortOrder",
+    "ToolClass",
+    "TrsInfo",
     "Version",
     "VersionField",
 ]
@@ -169,6 +173,47 @@ class File(BaseModel):
     content: str | None = Field(default=None, description="Contents of the file.")
     checksums: dict[str, str] | None = Field(default=None, description="Checksums of the content, keyed by algorithm.")
     url: str | None = Field(default=None, description="Address the file can be fetched from.")
+
+
+class ServiceType(BaseModel):
+    """Which GA4GH API a service implements, and at what version."""
+
+    group: str = Field(description="Namespace in reverse domain name format, for example 'org.ga4gh'.")
+    artifact: str = Field(description="Name of the API or GA4GH specification implemented, for example 'trs'.")
+    version: str = Field(description="Version of the API or specification implemented.")
+
+
+class ServiceOrganization(BaseModel):
+    """The organization operating a GA4GH service."""
+
+    name: str = Field(description="Name of the organization responsible for the service.")
+    url: str = Field(description="URL of the organization's website.")
+
+
+class TrsInfo(BaseModel):
+    """GA4GH TRS service-info: metadata describing a Dockstore instance's TRS API."""
+
+    id: str = Field(description="Unique identifier of this service, in reverse domain name notation.")
+    name: str = Field(description="Human-readable name of this service.")
+    type: ServiceType = Field(description="Which GA4GH API this service implements, and at what version.")
+    organization: ServiceOrganization = Field(description="Organization operating this service.")
+    version: str = Field(description="Version of the service software.")
+    description: str | None = Field(default=None, description="Human-readable description of the service.")
+    contact_url: str | None = Field(default=None, description="Contact URL or mailto link for the service.")
+    documentation_url: str | None = Field(default=None, description="URL of the service's documentation.")
+    environment: str | None = Field(
+        default=None, description="Deployment environment, for example 'prod' or 'staging'."
+    )
+    created_at: datetime | None = Field(default=None, description="When the service was first deployed.")
+    updated_at: datetime | None = Field(default=None, description="When the service was last updated.")
+
+
+class ToolClass(BaseModel):
+    """A GA4GH TRS tool class: a category of entry, such as 'Workflow' or 'CommandLineTool'."""
+
+    id: str | None = Field(default=None, description="Unique identifier for the class.")
+    name: str | None = Field(default=None, description="Short, friendly name for the class.")
+    description: str | None = Field(default=None, description="Longer explanation of what this class is.")
 
 
 class EntryField(StrEnum):
