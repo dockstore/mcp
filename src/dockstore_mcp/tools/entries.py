@@ -58,7 +58,7 @@ DEFAULT_ENTRY_FIELDS = [
     EntryField.TOPIC,
     EntryField.AUTHORS,
     EntryField.DEFAULT_VERSION,
-    EntryField.VERSION_IDS,
+    EntryField.CREATED_AT,
     EntryField.UPDATED_AT,
     EntryField.URL,
 ]
@@ -73,6 +73,7 @@ DEFAULT_VERSION_FIELDS = [
     VersionField.FILE_PATHS,
     VersionField.IS_VALID,
     VersionField.IS_VERIFIED,
+    VersionField.CREATED_AT,
     VersionField.UPDATED_AT,
     VersionField.URL,
 ]
