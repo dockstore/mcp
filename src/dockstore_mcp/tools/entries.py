@@ -24,7 +24,7 @@ TODO: ``get_version`` and ``get_file`` are still scaffolding and raise
 import logging
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -42,7 +42,7 @@ from dockstore_mcp.models import (
     VersionField,
 )
 
-__all__ = ["DEFAULT_ENTRY_FIELDS", "DEFAULT_FILE_FIELDS", "DEFAULT_VERSION_FIELDS", "register"]
+__all__ = ["ALL_FIELDS", "DEFAULT_ENTRY_FIELDS", "DEFAULT_FILE_FIELDS", "DEFAULT_VERSION_FIELDS", "register"]
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,9 @@ DEFAULT_FILE_FIELDS = [
     FileField.CONTENT,
 ]
 
+#: The value a caller puts in ``fields`` to ask for every field at once.
+ALL_FIELDS = "*"
+
 #: Fields that can only be answered from the entry's versions, which Dockstore
 #: leaves out of an entry unless they are asked for by name.
 _VERSION_BACKED = frozenset({EntryField.VERSION_IDS, EntryField.IS_VERIFIED})
@@ -120,7 +123,7 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
     """Add the entry, version, and file lookup tools to ``mcp``."""
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def get_entry(entry_id: str, fields: list[EntryField] | None = None) -> Entry:
+    async def get_entry(entry_id: str, fields: list[EntryField | Literal["*"]] | None = None) -> Entry:
         """Retrieve information about one Dockstore entry.
 
         Use this once you have an entry's identifier, which ``search_entries`` returns.
@@ -130,12 +133,16 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         Args:
             entry_id: Dockstore identifier of the entry, as returned by ``search_entries``.
             fields: Which fields to return. Ask only for what you need: ``description``
-                is often a whole README. Defaults to a summary of the entry.
+                is often a whole README. Defaults to a summary of the entry; ``["*"]``
+                returns every field.
 
         Returns:
             The entry, with the requested fields populated and the rest left unset.
         """
-        requested = frozenset(fields or DEFAULT_ENTRY_FIELDS)
+        if fields and ALL_FIELDS in fields:
+            requested = frozenset(EntryField)
+        else:
+            requested = frozenset(EntryField(field) for field in fields or DEFAULT_ENTRY_FIELDS)
         identifier = _identifier(entry_id)
         payload = await _fetch_entry(api, identifier, versions=bool(requested & _VERSION_BACKED))
         categories = await _fetch_categories(api, identifier) if requested & _CATEGORY_BACKED else []

@@ -145,7 +145,6 @@ async def test_get_entry_summarizes_a_workflow(client: Client[Any]) -> None:
     assert entry.path == ("github.com/iwc-workflows/sars-cov-2-variant-calling/COVID-19-ARTIC-ILLUMINA")
     assert entry.authors == ["IWC"]  # The author with no name is dropped.
     assert entry.default_version == "v0.5.2"
-    assert entry.version_ids == ["117122", "117123"]
     assert entry.updated_at == datetime(2026, 5, 13, 15, 33, 42, tzinfo=UTC)
     assert entry.url == (
         "https://staging.dockstore.org/workflows/"
@@ -169,6 +168,16 @@ async def test_get_entry_returns_only_the_requested_fields(client: Client[Any]) 
     assert entry.star_count == 2
     assert entry.id is None
     assert entry.version_ids is None
+
+
+async def test_get_entry_returns_every_field_for_a_star(client: Client[Any], dockstore: FakeDockstore) -> None:
+    entry = await _get_entry(client, entry_id="16247", fields=["*"])
+    assert entry.description is not None
+    assert entry.version_ids == ["117122", "117123"]
+    assert entry.operations == ["Variant calling"]
+    # Every field was asked for, so both of the follow-up requests were made.
+    assert dockstore.paths() == ["/api/workflows/published/16247", "/api/entries/16247/categories"]
+    assert dockstore.requests[0].url.params["include"] == "versions"
 
 
 async def test_get_entry_finds_a_tool_too(client: Client[Any]) -> None:
