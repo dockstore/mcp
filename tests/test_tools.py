@@ -170,6 +170,17 @@ async def test_get_entry_returns_only_the_requested_fields(client: Client[Any]) 
     assert entry.version_ids is None
 
 
+async def test_get_entry_leaves_the_unrequested_fields_out_of_the_response(client: Client[Any]) -> None:
+    async with client:
+        result = await client.call_tool("get_entry", {"entry_id": "16247", "fields": ["name", "doi", "registry"]})
+    # A field that was asked for is sent even when it is empty; the rest are not sent at all.
+    assert result.structured_content == {
+        "name": "COVID-19-ARTIC-ILLUMINA",
+        "doi": "10.5281/zenodo.15685746",
+        "registry": None,
+    }
+
+
 async def test_get_entry_returns_every_field_for_a_star(client: Client[Any], dockstore: FakeDockstore) -> None:
     entry = await _get_entry(client, entry_id="16247", fields=["*"])
     assert entry.description is not None

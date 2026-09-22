@@ -25,7 +25,7 @@ webservice's own enums are.
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SerializerFunctionWrapHandler, model_serializer
 
 __all__ = [
     "DescriptorLanguage",
@@ -95,11 +95,25 @@ class EntrySummary(BaseModel):
     updated_at: datetime | None = Field(default=None, description="When the entry was last modified.")
 
 
-class Entry(BaseModel):
+class _Sparse(BaseModel):
+    """A model that serializes only the fields it was given a value for.
+
+    The lookup tools fill in just the fields a caller asked for, and leaving the
+    others out of the response keeps it as small as the request.  A field that was
+    asked for but has no value is still sent, as null.
+    """
+
+    # No return annotation: one would replace the model's output schema with that type.
+    @model_serializer(mode="wrap")
+    def _only_set_fields(self, handler: SerializerFunctionWrapHandler):  # type: ignore[no-untyped-def]
+        return {name: value for name, value in handler(self).items() if name in self.model_fields_set}
+
+
+class Entry(_Sparse):
     """A Dockstore entry.
 
     Every field is optional: a response carries only the fields the caller asked
-    for, and leaves the rest unset.
+    for, and leaves the rest out.
     """
 
     id: str | None = Field(default=None, description="Dockstore identifier for the entry.")
@@ -135,7 +149,7 @@ class Entry(BaseModel):
     url: str | None = Field(default=None, description="Address of the entry's page on Dockstore.")
 
 
-class Version(BaseModel):
+class Version(_Sparse):
     """One version of a Dockstore entry.
 
     Every field is optional, for the same reason as on :class:`Entry`.
@@ -159,7 +173,7 @@ class Version(BaseModel):
     url: str | None = Field(default=None, description="Address of the version's page on Dockstore.")
 
 
-class File(BaseModel):
+class File(_Sparse):
     """One file belonging to a version of an entry.
 
     Every field is optional, for the same reason as on :class:`Entry`.
