@@ -13,10 +13,9 @@ MCP, so it is deployed alongside the Dockstore webservice rather than inside it.
 
 It is built on [FastMCP](https://gofastmcp.com) 4 and ships as a container image.
 
-> **Status: scaffold.** The only tool with a body is `hello`, which reports the
-> configured Dockstore instance and proves the plumbing end to end. The four Dockstore
-> tools are declared — names, arguments, and response shapes — but each one raises
-> `NotImplementedError` until it is wired up to the Dockstore API.
+> **Status: early.** `hello` and `get_entry` work. `search_entries`, `get_version`,
+> and `get_file` are declared — names, arguments, and response shapes — but each one
+> raises `NotImplementedError` until it is wired up to the Dockstore API.
 
 ## Requirements
 
@@ -132,16 +131,24 @@ and does not check PyPI for updates on startup; see the
 | `get_version`    | Retrieves the requested fields of one version of an entry.                        |
 | `get_file`       | Retrieves the requested fields of one file belonging to a version.                |
 
-The last four are scaffolding and are not implemented yet. They are a chain:
-`search_entries` yields entry identifiers, an entry yields version identifiers, and a
-version yields file paths. Each lookup takes a list of fields so that a caller can ask
-for a name and a date without also pulling down a README or a whole descriptor.
+`search_entries`, `get_version`, and `get_file` are scaffolding and are not implemented
+yet. The four form a chain: `search_entries` yields entry identifiers, an entry yields
+version identifiers, and a version yields file paths. Each lookup takes a list of
+fields so that a caller can ask for a name and a date without also pulling down a
+README or a whole descriptor.
+
+`get_entry` takes the numeric identifier Dockstore gives an entry and reads it from
+the webservice, trying the workflow endpoint first and the tool endpoint second, since
+only tools are served by the latter. Fields that cost an extra request — the
+categories an entry is filed under, and the facets Dockstore derives from them — are
+fetched only when they are asked for.
 
 ## Layout
 
 ```
 src/dockstore_mcp/
 ├── __main__.py      command line entry point (`dockstore-mcp`)
+├── api.py           HTTP client for the Dockstore webservice
 ├── config.py        settings, read from the environment
 ├── models.py        entry, version, and file types shared by the tools
 ├── server.py        server construction, /health route
@@ -157,8 +164,11 @@ Dockerfile           two-stage build of the deployable image
 ### Adding a tool
 
 Add a module under `src/dockstore_mcp/tools/` that exposes
-`register(mcp: FastMCP, settings: Settings) -> None`, and call it from
-`register_all` in `tools/__init__.py`. Group related tools in one module.
+`register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None`, and call it
+from `register_all` in `tools/__init__.py`. Group related tools in one module. The
+`api` argument is the shared HTTP client; reach Dockstore through it rather than
+opening a connection of your own, so that calls reuse the connection pool and the
+server can close it on shutdown.
 
 Keep tool docstrings written for the model that will read them: say what the tool
 returns and when to reach for it. Note that FastMCP can also generate tools directly
@@ -173,7 +183,9 @@ make format     # apply ruff formatting and safe fixes
 ```
 
 Tests use FastMCP's in-memory client, so they exercise real tool dispatch without
-starting a server or opening a socket.
+starting a server or opening a socket. Tools that call Dockstore are pointed at
+`tests/fake_dockstore.py`, which answers from trimmed copies of real payloads and
+records what it was asked, so a test can show that a field nobody wanted cost nothing.
 
 ### Installing git-secrets
 

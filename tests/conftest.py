@@ -20,8 +20,10 @@ from typing import Any
 import pytest
 from fastmcp import Client, FastMCP
 
+from dockstore_mcp.api import DockstoreApi
 from dockstore_mcp.config import Settings
 from dockstore_mcp.server import create_server
+from fake_dockstore import FakeDockstore
 
 
 @pytest.fixture(autouse=True)
@@ -40,8 +42,19 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-def server(settings: Settings) -> FastMCP:
-    return create_server(settings)
+def dockstore() -> FakeDockstore:
+    """A Dockstore that answers from canned payloads and records what it was asked."""
+    return FakeDockstore()
+
+
+@pytest.fixture
+def api(settings: Settings, dockstore: FakeDockstore) -> DockstoreApi:
+    return DockstoreApi(settings, transport=dockstore.transport)
+
+
+@pytest.fixture
+def server(settings: Settings, api: DockstoreApi) -> FastMCP:
+    return create_server(settings, api)
 
 
 @pytest.fixture

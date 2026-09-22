@@ -14,12 +14,15 @@
 """Construction of the Dockstore MCP server."""
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from dockstore_mcp import __version__
+from dockstore_mcp.api import DockstoreApi
 from dockstore_mcp.config import Settings, get_settings
 from dockstore_mcp.tools import register_all
 
@@ -35,20 +38,32 @@ through both the GA4GH Tool Registry Service (TRS) API and Dockstore's own API.
 """
 
 
-def create_server(settings: Settings | None = None) -> FastMCP:
+def create_server(settings: Settings | None = None, api: DockstoreApi | None = None) -> FastMCP:
     """Build a server instance with every tool registered.
 
     Args:
         settings: Configuration to use. Defaults to the process-wide settings
             read from the environment.
+        api: Client the tools reach Dockstore through. Defaults to one built
+            from ``settings``; tests pass one that answers from canned data.
     """
     settings = settings or get_settings()
+    api = api or DockstoreApi(settings)
+
+    @asynccontextmanager
+    async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
+        """Hold the connection pool open for as long as the server is running."""
+        try:
+            yield
+        finally:
+            await api.aclose()
 
     mcp: FastMCP = FastMCP(
         name="dockstore",
         version=__version__,
         instructions=INSTRUCTIONS,
         website_url=settings.dockstore_url,
+        lifespan=lifespan,
     )
 
     @mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
@@ -56,7 +71,7 @@ def create_server(settings: Settings | None = None) -> FastMCP:
         """Liveness probe for the container and any load balancer in front of it."""
         return JSONResponse({"status": "ok", "version": __version__})
 
-    register_all(mcp, settings)
+    register_all(mcp, settings, api)
     logger.debug("Server built against Dockstore instance %s", settings.dockstore_url)
     return mcp
 

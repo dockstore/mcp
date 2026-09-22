@@ -17,6 +17,7 @@ from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from dockstore_mcp import __version__
+from dockstore_mcp.api import DockstoreApi
 from dockstore_mcp.config import Settings
 
 __all__ = ["Greeting", "register"]
@@ -30,8 +31,11 @@ class Greeting(BaseModel):
     server_version: str = Field(description="Version of the dockstore-mcp package that answered.")
 
 
-def register(mcp: FastMCP, settings: Settings) -> None:
-    """Add the hello tool to ``mcp``."""
+def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
+    """Add the hello tool to ``mcp``.
+
+    The tool makes no request of its own, so ``api`` goes unused here.
+    """
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": False})
     def hello(name: str = "world") -> Greeting:

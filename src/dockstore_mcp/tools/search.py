@@ -23,6 +23,7 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
+from dockstore_mcp.api import DockstoreApi
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import DescriptorLanguage, EntrySummary, EntryType, SortBy, SortOrder
 
@@ -45,7 +46,7 @@ class SearchResults(BaseModel):
     total_count: int = Field(description="How many entries matched in total, which may exceed the limit.")
 
 
-def register(mcp: FastMCP, settings: Settings) -> None:
+def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
     """Add the search tool to ``mcp``."""
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
