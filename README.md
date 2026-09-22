@@ -133,7 +133,7 @@ and does not check PyPI for updates on startup; see the
 
 `search_entries`, `get_version`, and `get_file` are scaffolding and are not implemented
 yet. The four form a chain: `search_entries` yields entry identifiers, an entry yields
-version identifiers, and a version yields file paths. Each lookup takes a list of
+its versions, and a version yields file paths. Each lookup takes a list of
 fields so that a caller can ask for a name and a date without also pulling down a
 README or a whole descriptor.
 

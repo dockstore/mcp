@@ -38,8 +38,10 @@ from dockstore_mcp.models import (
     EntryType,
     File,
     FileField,
+    ReferenceType,
     Version,
     VersionField,
+    VersionSummary,
 )
 
 __all__ = ["ALL_FIELDS", "DEFAULT_ENTRY_FIELDS", "DEFAULT_FILE_FIELDS", "DEFAULT_VERSION_FIELDS", "register"]
@@ -91,7 +93,7 @@ ALL_FIELDS = "*"
 
 #: Fields that can only be answered from the entry's versions, which Dockstore
 #: leaves out of an entry unless they are asked for by name.
-_VERSION_BACKED = frozenset({EntryField.VERSION_IDS, EntryField.IS_VERIFIED})
+_VERSION_BACKED = frozenset({EntryField.VERSIONS, EntryField.DEFAULT_VERSION, EntryField.IS_VERIFIED})
 
 #: Fields that come from the entry's categories, which are a second request.
 _CATEGORY_BACKED = frozenset(
@@ -127,8 +129,8 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         """Retrieve information about one Dockstore entry.
 
         Use this once you have an entry's identifier, which ``search_entries`` returns.
-        To read a particular version of the entry, take an identifier from the returned
-        ``version_ids`` and pass it to ``get_version``.
+        To read a particular version of the entry, take the id of one of the returned
+        ``versions`` and pass it to ``get_version``.
 
         Args:
             entry_id: Dockstore identifier of the entry, as returned by ``search_entries``.
@@ -233,6 +235,7 @@ def _to_entry(
     """Map a Dockstore entry payload onto the requested fields of an :class:`Entry`."""
     facets = _facets(categories)
     versions = payload.get("workflowVersions")
+    summaries = _versions(versions)
     starred = payload.get("starredUsers")
     values: dict[str, Any] = {
         "id": _text(payload.get("id")),
@@ -258,8 +261,8 @@ def _to_entry(
         "is_published": payload.get("is_published"),
         "is_verified": any(version.get("verified") for version in versions) if versions is not None else None,
         "star_count": len(starred) if starred is not None else None,
-        "default_version": payload.get("defaultVersion"),
-        "version_ids": [_text(v.get("id")) for v in versions if v.get("id") is not None] if versions else versions,
+        "default_version": _default_version(summaries, payload.get("defaultVersion")),
+        "versions": summaries,
         "doi": _doi(payload),
         "created_at": _timestamp(payload.get("dbCreateDate")),
         "updated_at": _timestamp(
@@ -298,6 +301,29 @@ def _facets(categories: Iterable[Any]) -> dict[str, list[str]]:
     return {field: list(dict.fromkeys(labels)) for field, labels in facets.items()}
 
 
+def _versions(versions: Any) -> list[VersionSummary] | None:
+    """Summarize each of an entry's versions, skipping any without an identifier."""
+    if not isinstance(versions, list):
+        return None
+    return [
+        VersionSummary(
+            id=str(version["id"]),
+            name=version.get("name"),
+            reference_type=_reference_type(version.get("referenceType")),
+            updated_at=_timestamp(version.get("last_modified") or version.get("dbUpdateDate")),
+        )
+        for version in versions
+        if isinstance(version, dict) and version.get("id") is not None
+    ]
+
+
+def _default_version(summaries: list[VersionSummary] | None, name: Any) -> VersionSummary | None:
+    """Find the version the entry names as its default, which Dockstore identifies by name."""
+    if summaries is None or not name:
+        return None
+    return next((summary for summary in summaries if summary.name == name), None)
+
+
 def _first_of(payload: dict[str, Any], *keys: str) -> Any:
     """Return the first of ``keys`` that the payload has a truthy value for.
 
@@ -326,6 +352,17 @@ def _entry_type(value: Any) -> EntryType | None:
         return EntryType(value.lower())
     except ValueError:
         logger.debug("Dockstore reported an entry type this server does not know: %r", value)
+        return None
+
+
+def _reference_type(value: Any) -> ReferenceType | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return ReferenceType(value.lower())
+    except ValueError:
+        # Hosted entries have no source control, and report NOT_APPLICABLE or UNSET.
+        logger.debug("Dockstore reported a reference type this server does not know: %r", value)
         return None
 
 

@@ -35,6 +35,7 @@ from dockstore_mcp.models import (
     EntryType,
     File,
     FileField,
+    ReferenceType,
     Version,
     VersionField,
 )
@@ -144,7 +145,8 @@ async def test_get_entry_summarizes_a_workflow(client: Client[Any]) -> None:
     assert entry.organization == "iwc-workflows"
     assert entry.path == ("github.com/iwc-workflows/sars-cov-2-variant-calling/COVID-19-ARTIC-ILLUMINA")
     assert entry.authors == ["IWC"]  # The author with no name is dropped.
-    assert entry.default_version == "v0.5.2"
+    assert entry.default_version is not None
+    assert (entry.default_version.id, entry.default_version.name) == ("117123", "v0.5.2")
     assert entry.updated_at == datetime(2026, 5, 13, 15, 33, 42, tzinfo=UTC)
     assert entry.url == (
         "https://staging.dockstore.org/workflows/"
@@ -167,7 +169,7 @@ async def test_get_entry_returns_only_the_requested_fields(client: Client[Any]) 
     assert entry.doi == "10.5281/zenodo.15685746"
     assert entry.star_count == 2
     assert entry.id is None
-    assert entry.version_ids is None
+    assert entry.versions is None
 
 
 async def test_get_entry_leaves_the_unrequested_fields_out_of_the_response(client: Client[Any]) -> None:
@@ -184,7 +186,10 @@ async def test_get_entry_leaves_the_unrequested_fields_out_of_the_response(clien
 async def test_get_entry_returns_every_field_for_a_star(client: Client[Any], dockstore: FakeDockstore) -> None:
     entry = await _get_entry(client, entry_id="16247", fields=["*"])
     assert entry.description is not None
-    assert entry.version_ids == ["117122", "117123"]
+    assert [(v.id, v.name, v.reference_type) for v in entry.versions] == [
+        ("117122", "v0.5.1", ReferenceType.TAG),
+        ("117123", "v0.5.2", ReferenceType.TAG),
+    ]
     assert entry.operations == ["Variant calling"]
     # Every field was asked for, so both of the follow-up requests were made.
     assert dockstore.paths() == ["/api/workflows/published/16247", "/api/entries/16247/categories"]
@@ -212,6 +217,43 @@ async def test_get_entry_reads_a_tools_differently_spelled_fields(client: Client
     assert entry.source_control == "github.com"  # Only a workflow states this outright.
     assert entry.star_count == 0
     assert entry.is_verified is True
+
+
+async def test_get_entry_summarizes_each_version(client: Client[Any]) -> None:
+    async with client:
+        result = await client.call_tool("get_entry", {"entry_id": "188", "fields": ["versions"]})
+    assert result.structured_content == {
+        "versions": [
+            {
+                "id": "5011",
+                "name": "2.2.0",
+                "reference_type": "branch",
+                "updated_at": "2022-03-31T21:37:31Z",
+            }
+        ]
+    }
+
+
+async def test_get_entry_prefers_a_versions_last_modified_date(client: Client[Any]) -> None:
+    entry = await _get_entry(client, entry_id="16247", fields=["versions"])
+    assert entry.versions is not None
+    assert entry.versions[1].updated_at == datetime(2026, 5, 13, 15, 33, 42, tzinfo=UTC)
+
+
+async def test_get_entry_finds_the_default_version_among_the_versions(
+    client: Client[Any], dockstore: FakeDockstore
+) -> None:
+    async with client:
+        result = await client.call_tool("get_entry", {"entry_id": "188", "fields": ["default_version"]})
+    assert result.structured_content == {
+        "default_version": {
+            "id": "5011",
+            "name": "2.2.0",
+            "reference_type": "branch",
+            "updated_at": "2022-03-31T21:37:31Z",
+        }
+    }
+    assert dockstore.requests[0].url.params["include"] == "versions"
 
 
 async def test_get_entry_sorts_categories_into_their_fields(client: Client[Any]) -> None:
@@ -252,7 +294,7 @@ async def test_get_entry_asks_dockstore_for_no_more_than_it_needs(
 async def test_get_entry_asks_for_versions_and_categories_when_they_are_wanted(
     client: Client[Any], dockstore: FakeDockstore
 ) -> None:
-    await _get_entry(client, entry_id="16247", fields=["version_ids", "operations"])
+    await _get_entry(client, entry_id="16247", fields=["versions", "operations"])
     assert dockstore.paths() == ["/api/workflows/published/16247", "/api/entries/16247/categories"]
     assert dockstore.requests[0].url.params["include"] == "versions"
 

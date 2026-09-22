@@ -35,10 +35,12 @@ __all__ = [
     "EntryType",
     "File",
     "FileField",
+    "ReferenceType",
     "SortBy",
     "SortOrder",
     "Version",
     "VersionField",
+    "VersionSummary",
 ]
 
 
@@ -61,6 +63,14 @@ class DescriptorLanguage(StrEnum):
     GALAXY = "gxformat2"
     SNAKEMAKE = "SMK"
     JUPYTER = "jupyter"
+
+
+class ReferenceType(StrEnum):
+    """What kind of source control reference a version was built from."""
+
+    TAG = "tag"
+    BRANCH = "branch"
+    COMMIT = "commit"
 
 
 class SortBy(StrEnum):
@@ -93,6 +103,17 @@ class EntrySummary(BaseModel):
     topic: str | None = Field(default=None, description="One-line description of what the entry does.")
     created_at: datetime | None = Field(default=None, description="When the entry was registered.")
     updated_at: datetime | None = Field(default=None, description="When the entry was last modified.")
+
+
+class VersionSummary(BaseModel):
+    """The handful of fields that identify one of an entry's versions."""
+
+    id: str = Field(description="Dockstore identifier for the version; pass this to get_version.")
+    name: str | None = Field(default=None, description="Version name, usually a tag or branch.")
+    reference_type: ReferenceType | None = Field(
+        default=None, description="Whether the version was built from a tag, a branch, or a commit."
+    )
+    updated_at: datetime | None = Field(default=None, description="When the version was last modified.")
 
 
 class _Sparse(BaseModel):
@@ -141,8 +162,10 @@ class Entry(_Sparse):
     is_published: bool | None = Field(default=None, description="Whether the entry is publicly visible.")
     is_verified: bool | None = Field(default=None, description="Whether any version has been verified.")
     star_count: int | None = Field(default=None, description="How many users have starred the entry.")
-    default_version: str | None = Field(default=None, description="Name of the version served by default.")
-    version_ids: list[str] | None = Field(default=None, description="Version identifiers; pass one to get_version.")
+    default_version: VersionSummary | None = Field(default=None, description="The version served by default.")
+    versions: list[VersionSummary] | None = Field(
+        default=None, description="The entry's versions; pass a version's id to get_version."
+    )
     doi: str | None = Field(default=None, description="Concept DOI for the entry as a whole, if there is one.")
     created_at: datetime | None = Field(default=None, description="When the entry was registered.")
     updated_at: datetime | None = Field(default=None, description="When the entry was last modified.")
@@ -214,7 +237,7 @@ class EntryField(StrEnum):
     IS_VERIFIED = "is_verified"
     STAR_COUNT = "star_count"
     DEFAULT_VERSION = "default_version"
-    VERSION_IDS = "version_ids"
+    VERSIONS = "versions"
     DOI = "doi"
     CREATED_AT = "created_at"
     UPDATED_AT = "updated_at"

@@ -61,8 +61,24 @@ WORKFLOW: dict[str, Any] = {
 
 #: What ``include=versions`` adds to the workflow above.
 WORKFLOW_VERSIONS: list[dict[str, Any]] = [
-    {"id": 117122, "name": "v0.5.1", "reference": "v0.5.1", "verified": False},
-    {"id": 117123, "name": "v0.5.2", "reference": "v0.5.2", "verified": True},
+    {
+        "id": 117122,
+        "name": "v0.5.1",
+        "reference": "v0.5.1",
+        "referenceType": "TAG",
+        "verified": False,
+        "last_modified": 1747584000000,
+        "dbUpdateDate": 1747670405000,
+    },
+    {
+        "id": 117123,
+        "name": "v0.5.2",
+        "reference": "v0.5.2",
+        "referenceType": "TAG",
+        "verified": True,
+        "last_modified": 1778686422000,
+        "dbUpdateDate": 1778686489697,
+    },
 ]
 
 #: A published tool, as ``/containers/published/{id}`` returns it.  A tool has
@@ -99,7 +115,17 @@ TOOL: dict[str, Any] = {
 }
 
 #: What ``include=versions`` adds to the tool above.
-TOOL_VERSIONS: list[dict[str, Any]] = [{"id": 5011, "name": "2.2.0", "reference": "2.2.0", "verified": True}]
+TOOL_VERSIONS: list[dict[str, Any]] = [
+    {
+        "id": 5011,
+        "name": "2.2.0",
+        "reference": "2.2.0",
+        "referenceType": "BRANCH",
+        "verified": True,
+        "last_modified": None,
+        "dbUpdateDate": 1648762651000,
+    }
+]
 
 #: The categories the workflow above has been filed under: one a person
 #: curated, and six from Dockstore's automatic categorization.
