@@ -97,17 +97,21 @@ _CATEGORY_BACKED = frozenset(
         EntryField.OPERATIONS,
         EntryField.INPUT_FORMATS,
         EntryField.OUTPUT_FORMATS,
+        EntryField.INPUT_DATA,
+        EntryField.OUTPUT_DATA,
     }
 )
 
 #: Dockstore files an entry under automatic categories whose names say which
-#: facet they belong to, so one request for categories answers four of the
+#: facet they belong to, so one request for categories answers six of the
 #: fields above; anything else is a category a person curated.
 _CATEGORY_FACETS = {
     "subject_areas": ("topic-",),
     "operations": ("operation-",),
-    "input_formats": ("input-format-", "input-data-"),
-    "output_formats": ("output-format-", "output-data-"),
+    "input_formats": ("input-format-",),
+    "output_formats": ("output-format-",),
+    "input_data": ("input-data-",),
+    "output_data": ("output-data-",),
 }
 
 
@@ -239,6 +243,8 @@ def _to_entry(
         "operations": facets["operations"],
         "input_formats": facets["input_formats"],
         "output_formats": facets["output_formats"],
+        "input_data": facets["input_data"],
+        "output_data": facets["output_data"],
         "registry": _first_of(payload, "registry_string", "registry"),
         "source_control": _source_control(payload),
         "is_published": payload.get("is_published"),
@@ -280,7 +286,7 @@ def _facets(categories: Iterable[Any]) -> dict[str, list[str]]:
         if facet != "categories" and not category.get("metadata"):
             facet = "categories"
         facets[facet].append(label)
-    # A format can be filed under both its EDAM format and the data it carries.
+    # Two categories can share a display name, and a caller only needs it once.
     return {field: list(dict.fromkeys(labels)) for field, labels in facets.items()}
 
 

@@ -84,6 +84,8 @@ async def test_search_takes_every_facet(client: Client[Any]) -> None:
         "operation",
         "input_format",
         "output_format",
+        "input_data",
+        "output_data",
         "entry_type",
         "descriptor_type",
         "sort_by",
@@ -196,16 +198,26 @@ async def test_get_entry_sorts_categories_into_their_fields(client: Client[Any])
     entry = await _get_entry(
         client,
         entry_id="16247",
-        fields=["categories", "subject_areas", "operations", "input_formats", "output_formats"],
+        fields=[
+            "categories",
+            "subject_areas",
+            "operations",
+            "input_formats",
+            "output_formats",
+            "input_data",
+            "output_data",
+        ],
     )
     assert entry.categories == ["COVID-19"]
     assert entry.subject_areas == ["Virology"]
     assert entry.operations == ["Variant calling"]
-    assert entry.input_formats == ["FASTQ-sanger", "Short-read sequencing data"]
-    assert entry.output_formats == ["VCF", "Variant call data"]
+    assert entry.input_formats == ["FASTQ-sanger"]
+    assert entry.output_formats == ["VCF"]
+    assert entry.input_data == ["Short-read sequencing data"]
+    assert entry.output_data == ["Variant call data"]
     # Every canned category is accounted for exactly once.
     sorted_labels = entry.categories + entry.subject_areas + entry.operations
-    sorted_labels += entry.input_formats + entry.output_formats
+    sorted_labels += entry.input_formats + entry.output_formats + entry.input_data + entry.output_data
     assert len(sorted_labels) == len(CATEGORIES)
 
 

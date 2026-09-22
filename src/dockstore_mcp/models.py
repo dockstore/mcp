@@ -120,6 +120,8 @@ class Entry(BaseModel):
     operations: list[str] | None = Field(default=None, description="Operations the entry performs.")
     input_formats: list[str] | None = Field(default=None, description="File formats the entry accepts as input.")
     output_formats: list[str] | None = Field(default=None, description="File formats the entry produces as output.")
+    input_data: list[str] | None = Field(default=None, description="Kinds of data the entry accepts as input.")
+    output_data: list[str] | None = Field(default=None, description="Kinds of data the entry produces as output.")
     registry: str | None = Field(default=None, description="Image or workflow registry hosting the entry.")
     source_control: str | None = Field(default=None, description="Source control provider the descriptor lives in.")
     is_published: bool | None = Field(default=None, description="Whether the entry is publicly visible.")
@@ -190,6 +192,8 @@ class EntryField(StrEnum):
     OPERATIONS = "operations"
     INPUT_FORMATS = "input_formats"
     OUTPUT_FORMATS = "output_formats"
+    INPUT_DATA = "input_data"
+    OUTPUT_DATA = "output_data"
     REGISTRY = "registry"
     SOURCE_CONTROL = "source_control"
     IS_PUBLISHED = "is_published"

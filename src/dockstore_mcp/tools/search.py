@@ -60,6 +60,8 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         operation: str | None = None,
         input_format: str | None = None,
         output_format: str | None = None,
+        input_data: str | None = None,
+        output_data: str | None = None,
         entry_type: EntryType | None = None,
         descriptor_type: DescriptorLanguage | None = None,
         sort_by: SortBy = SortBy.RELEVANCE,
@@ -88,6 +90,8 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
             operation: Operation an entry performs, such as 'Sequence alignment'.
             input_format: File format an entry takes as input, such as 'FASTQ'.
             output_format: File format an entry produces, such as 'VCF'.
+            input_data: Kind of data an entry takes as input, such as 'Short-read sequencing data'.
+            output_data: Kind of data an entry produces, such as 'Variant call data'.
             entry_type: Restrict results to one kind of entry.
             descriptor_type: Restrict results to one descriptor language.
             sort_by: What to order the results by. Defaults to how well they match.
