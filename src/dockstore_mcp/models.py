@@ -181,6 +181,7 @@ class Version(_Sparse):
     id: str | None = Field(default=None, description="Dockstore identifier for the version.")
     entry_id: str | None = Field(default=None, description="Identifier of the entry this version belongs to.")
     name: str | None = Field(default=None, description="Version name, usually a tag or branch.")
+    trs_id: str | None = Field(default=None, description="GA4GH TRS identifier, for use against the TRS API.")
     reference: str | None = Field(default=None, description="Source control reference the version was built from.")
     descriptor_type: DescriptorLanguage | None = Field(
         default=None, description="Language this version's descriptor is written in."
@@ -250,6 +251,7 @@ class VersionField(StrEnum):
     ID = "id"
     ENTRY_ID = "entry_id"
     NAME = "name"
+    TRS_ID = "trs_id"
     REFERENCE = "reference"
     DESCRIPTOR_TYPE = "descriptor_type"
     DESCRIPTOR_PATH = "descriptor_path"
