@@ -27,8 +27,10 @@ async def test_every_tool_is_advertised(client: Client[Any]) -> None:
     assert sorted(tool.name for tool in tools) == [
         "get_entry",
         "get_file",
+        "get_trs_info",
         "get_version",
         "hello",
+        "list_tool_classes",
         "search_entries",
     ]
 

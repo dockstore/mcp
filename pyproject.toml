@@ -20,6 +20,7 @@ classifiers = [
 ]
 dependencies = [
     "fastmcp>=4.0.3,<5",
+    "httpx2>=2.5,<3",
     "pydantic-settings>=2.7",
     # cryptography (pulled in via fastmcp -> authlib) ships arm64-only macOS wheels
     # from 49.0.0 on. Without this pin, Intel macs fall back to the sdist and need a
