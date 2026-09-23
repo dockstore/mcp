@@ -45,6 +45,7 @@ jobs:
           context: .
           push: true
           tags: quay.io/dockstore/dockstore-mcp:${{ steps.ref.outputs.sanitized }}
+          build-args: GIT_REF=${{ steps.ref.outputs.sanitized }}
 
       - name: Create checksums
         run: |
