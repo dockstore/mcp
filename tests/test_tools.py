@@ -57,7 +57,7 @@ IMPLEMENTED: list[tuple[str, dict[str, Any]]] = [
             "query": "rna-seq",
             "entry_type": "workflow",
             "descriptor_type": "WDL",
-            "authors": ["Jane Doe"],
+            "author": "Jane Doe",
             "input_data": "Short-read sequencing data",
             "input_format": "FASTQ",
             "output_data": "Variant call data",
@@ -98,7 +98,7 @@ async def test_search_takes_every_facet(client: Client[Any]) -> None:
         "query",
         "entry_type",
         "descriptor_type",
-        "authors",
+        "author",
         "input_data",
         "input_format",
         "output_data",
@@ -392,14 +392,6 @@ async def test_search_turns_each_facet_into_a_filter(client: Client[Any], dockst
         {"match_phrase": {"output-format.displayName": "VCF"}},
         {"match_phrase": {"operation.displayName": "Variant calling"}},
         {"match_phrase": {"topic.displayName": "Genomics"}},
-    ]
-
-
-async def test_search_requires_every_author(client: Client[Any], dockstore: FakeDockstore) -> None:
-    _, body = await _search(client, dockstore, authors=["Jane Doe", " ", "John Roe"])
-    assert body["query"]["bool"]["filter"] == [
-        {"match_phrase": {"all_authors.name": "Jane Doe"}},
-        {"match_phrase": {"all_authors.name": "John Roe"}},
     ]
 
 

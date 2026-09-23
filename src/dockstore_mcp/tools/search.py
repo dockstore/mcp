@@ -132,7 +132,7 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         query: str | None = None,
         entry_type: EntryType | None = None,
         descriptor_type: DescriptorLanguage | None = None,
-        authors: list[str] | None = None,
+        author: str | None = None,
         input_data: str | None = None,
         input_format: str | None = None,
         output_data: str | None = None,
@@ -161,7 +161,7 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
             query: Keywords to look for anywhere in an entry's metadata, path, or descriptors.
             entry_type: Restrict results to one kind of entry. Services cannot be searched.
             descriptor_type: Restrict results to one descriptor language.
-            authors: Names of people the entry credits; an entry must credit all of them.
+            author: Name of a person the entry credits, such as 'Jane Doe'.
             input_data: Kind of data an entry takes as input, such as 'Short-read sequencing data'.
             input_format: File format an entry takes as input, such as 'FASTQ'.
             output_data: Kind of data an entry produces, such as 'Variant call data'.
@@ -182,8 +182,8 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
             query,
             entry_type=entry_type,
             descriptor_type=descriptor_type,
-            authors=authors or [],
             phrases={
+                "all_authors.name": author,
                 "input-data.displayName": input_data,
                 "input-format.displayName": input_format,
                 "output-data.displayName": output_data,
@@ -204,7 +204,6 @@ def _query(
     *,
     entry_type: EntryType | None,
     descriptor_type: DescriptorLanguage | None,
-    authors: list[str],
     phrases: dict[str, str | None],
     sort_by: SortBy,
     sort_order: SortOrder,
@@ -220,7 +219,6 @@ def _query(
     if descriptor_type is not None:
         # A tool lists every language it has a descriptor in; a term matches any of them.
         filters.append({"term": {"descriptorType": descriptor_type.value}})
-    filters.extend({"match_phrase": {"all_authors.name": author}} for author in authors if author.strip())
     filters.extend({"match_phrase": {field: value}} for field, value in phrases.items() if value and value.strip())
 
     body: dict[str, Any] = {

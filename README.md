@@ -140,7 +140,7 @@ README or a whole descriptor.
 `search_entries` sends an Elasticsearch query to Dockstore's TRS extension,
 `POST /api/ga4gh/v2/extended/tools/entry/_search`, which searches the same index as the
 site's Search page. Keywords are ranked with the Search page's weights. The entry
-type, descriptor language, authors, and EDAM facets (subject area, operation, and
+type, descriptor language, author, and EDAM facets (subject area, operation, and
 input and output data and formats) are filters. Results can be sorted by relevance,
 name, stars, or last update, and a call returns up to 100 of them (ten by default)
 along with the total number that matched. Services are not indexed, so they cannot be
