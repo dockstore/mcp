@@ -112,6 +112,16 @@ _SOURCE_FIELDS = [
     "dbUpdateDate",
 ]
 
+#: Painless that scores an entry by the square of its match score times the log of 1.05 plus its relevance.
+_RELEVANCE_SCRIPT = (
+    "double relevance = doc.containsKey('relevance') && !doc['relevance'].empty"
+    " ? doc['relevance'].value : params.missing;"
+    " return _score * _score * Math.log(1.05 + relevance);"
+)
+
+#: The relevance an entry without one is scored with.
+_MISSING_RELEVANCE = 1e-9
+
 #: A keyword that stands for itself in Lucene syntax, and so can be looked for in a path.
 _PLAIN_TERM = re.compile(r"[\w][\w.-]*")
 
@@ -303,14 +313,17 @@ def _keywords(text: str) -> dict[str, Any]:
 
 
 def _weigh_by_relevance(query: dict[str, Any]) -> dict[str, Any]:
-    """Multiply how well an entry matches ``query`` by how relevant Dockstore considers it overall."""
-    # An entry without a relevance all but drops to the bottom, while keeping
-    # its place among the other entries without one.
+    """Weigh the square of how well an entry matches ``query`` by how relevant Dockstore considers it overall."""
+    # Squaring the score and taking the log of the relevance let how well an entry
+    # matches outweigh how relevant it is, without discarding either, and the 1.05
+    # keeps an entry with little or no relevance from being buried entirely.
     return {
-        "function_score": {
+        "script_score": {
             "query": query,
-            "field_value_factor": {"field": "relevance", "missing": 1e-9},
-            "boost_mode": "multiply",
+            "script": {
+                "source": _RELEVANCE_SCRIPT,
+                "params": {"missing": _MISSING_RELEVANCE},
+            },
         }
     }
 

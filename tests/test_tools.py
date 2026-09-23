@@ -341,7 +341,7 @@ async def _search(client: Client[Any], dockstore: FakeDockstore, **arguments: An
 def _keywords(body: dict[str, Any]) -> dict[str, Any]:
     """Return the keyword clause of a search query, unwrapped from any relevance weighting."""
     [keywords] = body["query"]["bool"]["must"]
-    unwrapped: dict[str, Any] = keywords.get("function_score", {}).get("query", keywords)
+    unwrapped: dict[str, Any] = keywords.get("script_score", {}).get("query", keywords)
     return unwrapped
 
 
@@ -447,14 +447,15 @@ async def test_search_ranks_keywords_by_where_they_match(client: Client[Any], do
 async def test_search_weighs_keyword_matches_by_relevance(client: Client[Any], dockstore: FakeDockstore) -> None:
     _, body = await _search(client, dockstore, query="covid")
     [scored] = body["query"]["bool"]["must"]
-    assert scored["function_score"]["field_value_factor"] == {"field": "relevance", "missing": 1e-9}
-    assert scored["function_score"]["boost_mode"] == "multiply"
+    script = scored["script_score"]["script"]
+    assert "_score * _score * Math.log(1.05 + relevance)" in script["source"]
+    assert script["params"] == {"missing": 1e-9}
 
 
 async def test_search_by_a_field_does_not_weigh_keyword_matches(client: Client[Any], dockstore: FakeDockstore) -> None:
     _, body = await _search(client, dockstore, query="covid", sort_by="stars")
     [keywords] = body["query"]["bool"]["must"]
-    assert "function_score" not in keywords
+    assert "script_score" not in keywords
 
 
 async def test_search_looks_for_only_plain_keywords_in_paths(client: Client[Any], dockstore: FakeDockstore) -> None:
