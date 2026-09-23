@@ -46,6 +46,7 @@ __all__ = [
     "ToolClass",
     "ToolFile",
     "ToolPage",
+    "ToolSummary",
     "ToolVersion",
     "TrsDescriptorType",
     "TrsInfo",
@@ -293,10 +294,28 @@ class Tool(BaseModel):
     versions: list[ToolVersion] | None = Field(default=None, description="Every version of the tool.")
 
 
+class ToolSummary(BaseModel):
+    """The handful of fields that identify a TRS tool in a list, without its README or version details."""
+
+    id: str | None = Field(default=None, description="TRS identifier of the tool; pass this as tool_id.")
+    name: str | None = Field(default=None, description="Name of the tool.")
+    organization: str | None = Field(default=None, description="Organization that published the tool.")
+    tool_class: str | None = Field(default=None, description="Category of the tool, e.g. 'Workflow'.")
+    descriptor_types: list[str] = Field(
+        default_factory=list, description="Every descriptor language any of its versions is available in."
+    )
+    version_names: list[str] = Field(
+        default_factory=list, description="Name of each version; pass one as version_id to the version tools."
+    )
+    description: str | None = Field(default=None, description="The start of the tool's description, shortened.")
+
+
 class ToolPage(BaseModel):
     """One page of TRS tools, with enough context to fetch the rest."""
 
-    tools: list[Tool] = Field(description="The tools on this page, each with all of its versions.")
+    tools: list[Tool] | list[ToolSummary] = Field(
+        description="The tools on this page: in full, or as summaries if they were asked for."
+    )
     offset: int = Field(description="Which page this is, counting from 0.")
     limit: int = Field(description="Most tools a page holds.")
     total: int | None = Field(
