@@ -182,8 +182,9 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
             output_format: File format an entry produces, such as 'VCF'.
             operation: Operation an entry performs, such as 'Sequence alignment'.
             subject_area: Subject area an entry works in, such as 'Genomics'.
-            sort_by: What to order the results by. Defaults to how well they match, or,
-                with no ``query``, to how relevant Dockstore considers each entry.
+            sort_by: What to order the results by. Defaults to relevance: how well an
+                entry matches ``query``, weighted by how relevant Dockstore considers it,
+                or, with no ``query``, how relevant Dockstore considers it alone.
             sort_order: Which direction to order the results in. Defaults to
                 alphabetical for ``name`` and largest or newest first for the rest.
             limit: How many entries to return, at most 100.
@@ -253,7 +254,10 @@ def _query(
     }
     text = (query or "").strip()
     if text:
-        body["query"]["bool"]["must"] = [_keywords(text)]
+        keywords = _keywords(text)
+        if sort_by is SortBy.RELEVANCE:
+            keywords = _weigh_by_relevance(keywords)
+        body["query"]["bool"]["must"] = [keywords]
     body["sort"] = _sort(sort_by, sort_order, ranked=bool(text))
     return body
 
@@ -294,6 +298,19 @@ def _keywords(text: str) -> dict[str, Any]:
         "bool": {
             "should": [{"query_string": {"query": _escape_slashes(text), "fields": _QUERY_FIELDS}}, *paths],
             "minimum_should_match": 1,
+        }
+    }
+
+
+def _weigh_by_relevance(query: dict[str, Any]) -> dict[str, Any]:
+    """Multiply how well an entry matches ``query`` by how relevant Dockstore considers it overall."""
+    # An entry without a relevance all but drops to the bottom, while keeping
+    # its place among the other entries without one.
+    return {
+        "function_score": {
+            "query": query,
+            "field_value_factor": {"field": "relevance", "missing": 1e-9},
+            "boost_mode": "multiply",
         }
     }
 

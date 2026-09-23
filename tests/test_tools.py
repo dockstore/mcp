@@ -338,6 +338,13 @@ async def _search(client: Client[Any], dockstore: FakeDockstore, **arguments: An
     return result.structured_content, body
 
 
+def _keywords(body: dict[str, Any]) -> dict[str, Any]:
+    """Return the keyword clause of a search query, unwrapped from any relevance weighting."""
+    [keywords] = body["query"]["bool"]["must"]
+    unwrapped: dict[str, Any] = keywords.get("function_score", {}).get("query", keywords)
+    return unwrapped
+
+
 async def test_search_summarizes_each_hit(client: Client[Any], dockstore: FakeDockstore) -> None:
     results, _ = await _search(client, dockstore, query="covid")
     assert results["total_count"] == 42
@@ -421,7 +428,7 @@ async def test_search_filters_apptools_by_their_own_type(client: Client[Any], do
 
 async def test_search_ranks_keywords_by_where_they_match(client: Client[Any], dockstore: FakeDockstore) -> None:
     _, body = await _search(client, dockstore, query=" gatk  haplotype-caller ")
-    [keywords] = body["query"]["bool"]["must"]
+    keywords = _keywords(body)
     query_string, *paths = keywords["bool"]["should"]
     assert keywords["bool"]["minimum_should_match"] == 1
     assert query_string["query_string"]["query"] == "gatk  haplotype-caller"
@@ -437,10 +444,23 @@ async def test_search_ranks_keywords_by_where_they_match(client: Client[Any], do
     assert body["sort"] == [{"archived": {"order": "asc", "unmapped_type": "boolean"}}, {"_score": {"order": "desc"}}]
 
 
+async def test_search_weighs_keyword_matches_by_relevance(client: Client[Any], dockstore: FakeDockstore) -> None:
+    _, body = await _search(client, dockstore, query="covid")
+    [scored] = body["query"]["bool"]["must"]
+    assert scored["function_score"]["field_value_factor"] == {"field": "relevance", "missing": 1e-9}
+    assert scored["function_score"]["boost_mode"] == "multiply"
+
+
+async def test_search_by_a_field_does_not_weigh_keyword_matches(client: Client[Any], dockstore: FakeDockstore) -> None:
+    _, body = await _search(client, dockstore, query="covid", sort_by="stars")
+    [keywords] = body["query"]["bool"]["must"]
+    assert "function_score" not in keywords
+
+
 async def test_search_looks_for_only_plain_keywords_in_paths(client: Client[Any], dockstore: FakeDockstore) -> None:
     query = 'gatk AND NOT -somatic "variant calling" (bwa OR bowtie2) haplo* author:jane'
     _, body = await _search(client, dockstore, query=query)
-    [keywords] = body["query"]["bool"]["must"]
+    keywords = _keywords(body)
     query_string, *paths = keywords["bool"]["should"]
     assert query_string["query_string"]["query"] == query
     assert [clause["value"] for path in paths for clause in path["wildcard"].values()] == ["*gatk*", "*gatk*"]
@@ -448,7 +468,7 @@ async def test_search_looks_for_only_plain_keywords_in_paths(client: Client[Any]
 
 async def test_search_takes_slashes_literally(client: Client[Any], dockstore: FakeDockstore) -> None:
     _, body = await _search(client, dockstore, query=r"github.com/iwc\/x \\/y", input_format="a/b")
-    [keywords] = body["query"]["bool"]["must"]
+    keywords = _keywords(body)
     assert keywords["bool"]["should"][0]["query_string"]["query"] == r"github.com\/iwc\/x \\\/y"
     assert body["query"]["bool"]["filter"][0]["query_string"]["query"] == r"a\/b"
 

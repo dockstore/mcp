@@ -142,7 +142,8 @@ README or a whole descriptor.
 site's Search page. Keywords are ranked with the Search page's weights. The entry
 type, descriptor language, author, and EDAM facets (subject area, operation, and
 input and output data and formats) are filters. Keywords, author, and EDAM facets are
-written in Lucene query syntax and sent as `query_string` queries. Results can be sorted by relevance,
+written in Lucene query syntax and sent as `query_string` queries. Results can be sorted by relevance
+(with keywords, the Elasticsearch score multiplied by the entry's indexed `relevance`),
 name, stars, or last update, and a call returns up to 100 of them (ten by default)
 along with the total number that matched. Services are not indexed, so they cannot be
 searched for.
