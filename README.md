@@ -132,12 +132,12 @@ the full list.
 | `hello`                       | Greets the caller and reports the Dockstore instance and server version. No I/O.     |
 | `get_trs_info`                | Describes this instance's GA4GH TRS API: identifiers, version, and operator.         |
 | `list_tool_classes`           | Lists the tool classes (e.g. `Workflow`) this instance's TRS API sorts entries into. |
-| `list_tools`                  | Lists one page of every tool and workflow the TRS API serves.                        |
+| `list_tools`                  | Lists one page of every tool and workflow the TRS API serves, with the total count.  |
 | `search_tools`                | Finds TRS tools by name, organization, author, class, descriptor language, etc.      |
 | `get_tool`                    | Retrieves one TRS tool by id, including all of its versions.                         |
 | `list_tool_versions`          | Lists every version of one TRS tool.                                                 |
 | `get_tool_version`            | Retrieves one version of a TRS tool: authors, images, descriptor languages.          |
-| `get_tool_descriptor`         | Fetches the primary descriptor (CWL, WDL, etc.) of a version.                        |
+| `get_tool_descriptor`         | Fetches the primary descriptor (CWL, WDL, etc., or a notebook) of a version.         |
 | `get_tool_descriptor_by_path` | Fetches one of a version's files by its relative path.                               |
 | `get_tool_files`              | Lists every file of a version, without content.                                      |
 | `get_tool_tests`              | Fetches a version's test parameter files.                                            |

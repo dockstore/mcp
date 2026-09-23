@@ -113,7 +113,6 @@ _VERSION_PATH = f"/tools/{TOOL_ID}/versions/{VERSION_ID}"
 RESPONSES: dict[str, Any] = {
     "/service-info": SERVICE_INFO_RESPONSE,
     "/toolClasses": TOOL_CLASSES_RESPONSE,
-    "/tools": [TOOL_RESPONSE],
     f"/tools/{TOOL_ID}": TOOL_RESPONSE,
     f"/tools/{TOOL_ID}/versions": [VERSION_RESPONSE],
     _VERSION_PATH: VERSION_RESPONSE,
@@ -122,7 +121,25 @@ RESPONSES: dict[str, Any] = {
     f"{_VERSION_PATH}/CWL/files": FILES_RESPONSE,
     f"{_VERSION_PATH}/CWL/tests": TESTS_RESPONSE,
     f"{_VERSION_PATH}/containerfile": CONTAINERFILE_RESPONSE,
+    f"{_VERSION_PATH}/JUPYTER/files": [{"checksum": None, "file_type": "PRIMARY_DESCRIPTOR", "path": "main.ipynb"}],
 }
+
+#: Every tool the fake ``/tools`` endpoint pages through: TOOL_RESPONSE, then six more.
+CATALOG = [TOOL_RESPONSE, *({**TOOL_RESPONSE, "id": f"{TOOL_ID}-{i}"} for i in range(1, 7))]
+
+
+def _tools_page(request: httpx.Request) -> httpx.Response:
+    """Serve one page of CATALOG the way Dockstore does.
+
+    That includes its ``last_page`` header, whose offset Dockstore computes as
+    ``floor(total / limit)``: one page past the end when ``limit`` divides the total.
+    """
+    limit = int(request.url.params["limit"])
+    offset = int(request.url.params["offset"])
+    last_page = request.url.copy_merge_params({"offset": str(len(CATALOG) // limit)})
+    page = CATALOG[offset * limit : (offset + 1) * limit]
+    return httpx.Response(200, json=page, headers={"last_page": str(last_page)})
+
 
 #: The real class, captured before any test monkeypatches ``httpx.AsyncClient``.
 _RealAsyncClient = httpx.AsyncClient
@@ -159,6 +176,8 @@ def _mock_trs_api(monkeypatch: pytest.MonkeyPatch, requests_made: list[httpx.Req
         path = request.url.path.removeprefix("/api/ga4gh/trs/v2")
         if path in overrides:
             return overrides[path]
+        if path == "/tools":
+            return _tools_page(request)
         if path not in RESPONSES:
             return httpx.Response(404, json={"error": "not found"})
         return httpx.Response(200, json=RESPONSES[path])
@@ -195,11 +214,50 @@ async def test_get_trs_info_surfaces_http_errors(client: Client[Any], _mock_trs_
 
 async def test_list_tools_pages(client: Client[Any], requests_made: list[httpx.Request]) -> None:
     async with client:
-        result = await client.call_tool("list_tools", {"limit": 5, "offset": 2})
-    assert [tool.id for tool in result.data] == [TOOL_ID]
-    assert result.data[0].toolclass.name == "Workflow"
-    assert result.data[0].versions[0].name == VERSION_ID
-    assert dict(requests_made[0].url.params) == {"limit": "5", "offset": "2"}
+        result = await client.call_tool("list_tools", {"limit": 5, "offset": 0})
+    assert [tool.id for tool in result.data.tools] == [tool["id"] for tool in CATALOG[:5]]
+    assert result.data.tools[0].toolclass.name == "Workflow"
+    assert result.data.tools[0].versions[0].name == VERSION_ID
+    assert (result.data.offset, result.data.limit, result.data.total, result.data.next_offset) == (0, 5, 7, 1)
+    # The total needs the last page's size, so that page is fetched too.
+    assert [dict(request.url.params) for request in requests_made] == [
+        {"limit": "5", "offset": "0"},
+        {"limit": "5", "offset": "1"},
+    ]
+
+
+async def test_list_tools_last_page(client: Client[Any], requests_made: list[httpx.Request]) -> None:
+    async with client:
+        result = await client.call_tool("list_tools", {"limit": 5, "offset": 1})
+    assert len(result.data.tools) == 2
+    assert (result.data.total, result.data.next_offset) == (7, None)
+    assert len(requests_made) == 1
+
+
+@pytest.mark.parametrize("limit", [1, 7])
+async def test_list_tools_counts_evenly_divided_totals(client: Client[Any], limit: int) -> None:
+    # Dockstore's last_page points one page past the end here, at an empty page.
+    async with client:
+        result = await client.call_tool("list_tools", {"limit": limit, "offset": 0})
+    assert result.data.total == 7
+    assert result.data.next_offset == (1 if limit == 1 else None)
+
+
+async def test_list_tools_past_the_end(client: Client[Any]) -> None:
+    async with client:
+        result = await client.call_tool("list_tools", {"limit": 5, "offset": 9})
+    assert (result.data.tools, result.data.total, result.data.next_offset) == ([], 7, None)
+
+
+async def test_list_tools_without_a_last_page_header(
+    client: Client[Any], _mock_trs_api: dict[str, httpx.Response]
+) -> None:
+    _mock_trs_api["/tools"] = httpx.Response(200, json=[TOOL_RESPONSE])
+
+    async with client:
+        result = await client.call_tool("list_tools", {})
+    assert [tool.id for tool in result.data.tools] == [TOOL_ID]
+    assert (result.data.total, result.data.next_offset) == (None, None)
 
 
 async def test_list_tools_defaults_to_a_small_page(client: Client[Any], requests_made: list[httpx.Request]) -> None:
@@ -212,17 +270,15 @@ async def test_search_tools_sends_only_given_filters(client: Client[Any], reques
     async with client:
         result = await client.call_tool(
             "search_tools",
-            {"toolname": "name", "tool_class": "Workflow", "descriptor_type": "NFL", "checker": False},
+            {"toolname": "name", "tool_class": "Workflow", "descriptor_type": "NFL", "checker": False, "limit": 5},
         )
-    assert [tool.id for tool in result.data] == [TOOL_ID]
-    assert dict(requests_made[0].url.params) == {
-        "toolname": "name",
-        "toolClass": "Workflow",
-        "descriptorType": "NFL",
-        "checker": "false",
-        "limit": "20",
-        "offset": "0",
-    }
+    assert result.data.total == 7
+    filters = {"toolname": "name", "toolClass": "Workflow", "descriptorType": "NFL", "checker": "false"}
+    # The last page, fetched for the total, is filtered the same way.
+    assert [dict(request.url.params) for request in requests_made] == [
+        {**filters, "limit": "5", "offset": "0"},
+        {**filters, "limit": "5", "offset": "1"},
+    ]
 
 
 async def test_get_tool_encodes_the_id(client: Client[Any], requests_made: list[httpx.Request]) -> None:
@@ -294,6 +350,14 @@ async def test_get_tool_containerfile(client: Client[Any]) -> None:
     async with client:
         result = await client.call_tool("get_tool_containerfile", {"tool_id": TOOL_ID, "version_id": VERSION_ID})
     assert result.data[0].content == "FROM ubuntu:24.04\n"
+
+
+async def test_get_tool_files_for_a_notebook(client: Client[Any]) -> None:
+    async with client:
+        result = await client.call_tool(
+            "get_tool_files", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "descriptor_type": "JUPYTER"}
+        )
+    assert [file.path for file in result.data] == ["main.ipynb"]
 
 
 async def test_get_tool_rejects_unknown_descriptor_types(client: Client[Any]) -> None:
