@@ -116,11 +116,14 @@ over the environment.
 | `DOCKSTORE_MCP_PATH`          | `--path`          | `/mcp`                  | Path the MCP endpoint is served from             |
 | `DOCKSTORE_MCP_LOG_LEVEL`     | `--log-level`     | `INFO`                  | Logging verbosity                                |
 | `DOCKSTORE_MCP_DOCKSTORE_URL` | `--dockstore-url` | `https://dockstore.org` | Dockstore instance whose APIs are exposed        |
+| `DOCKSTORE_MCP_GIT_REF`       |                   | package version         | Version in the `dockstore-mcp/<ref>` User-Agent  |
 
 The container image overrides the first four so that it listens on `0.0.0.0:8000` out of
-the box. It also sets a few `FASTMCP_*` variables so that a deployed server logs plainly
-and does not check PyPI for updates on startup; see the
-[FastMCP settings](https://gofastmcp.com) for the full list.
+the box, and sets `DOCKSTORE_MCP_GIT_REF` from its `GIT_REF` build argument, which the
+release workflow and `make docker-build` fill in with the git tag or ref being built. It
+also sets a few `FASTMCP_*` variables so that a deployed server logs plainly and does not
+check PyPI for updates on startup; see the [FastMCP settings](https://gofastmcp.com) for
+the full list.
 
 ## Tools
 

@@ -25,6 +25,8 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+from dockstore_mcp import __version__
+
 SERVICE_INFO_RESPONSE = {
     "id": "org.dockstore.staging",
     "name": "Dockstore",
@@ -129,8 +131,8 @@ _RealAsyncClient = httpx.AsyncClient
 def _mock_client_factory(handler: Any) -> Any:
     """Build a stand-in for ``httpx.AsyncClient`` that routes every request through ``handler``."""
 
-    def fake_client(*, timeout: float) -> httpx.AsyncClient:
-        return _RealAsyncClient(timeout=timeout, transport=httpx.MockTransport(handler))
+    def fake_client(**kwargs: Any) -> httpx.AsyncClient:
+        return _RealAsyncClient(**kwargs, transport=httpx.MockTransport(handler))
 
     return fake_client
 
@@ -306,3 +308,9 @@ async def test_get_tool_surfaces_not_found(client: Client[Any]) -> None:
     async with client:
         with pytest.raises(ToolError):
             await client.call_tool("get_tool", {"tool_id": "#workflow/github.com/org/missing"})
+
+
+async def test_requests_identify_the_server(client: Client[Any], requests_made: list[httpx.Request]) -> None:
+    async with client:
+        await client.call_tool("get_trs_info", {})
+    assert requests_made[0].headers["User-Agent"] == f"dockstore-mcp/{__version__}"

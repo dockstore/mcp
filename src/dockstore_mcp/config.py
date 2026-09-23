@@ -24,6 +24,8 @@ from typing import Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from dockstore_mcp import __version__
+
 Transport = Literal["stdio", "http"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -52,6 +54,14 @@ class Settings(BaseSettings):
         description="Base URL of the Dockstore instance whose APIs this server exposes.",
     )
 
+    git_ref: str | None = Field(
+        default=None,
+        description=(
+            "Git tag or ref this server was built from, e.g. '1.21.0'; set at build time. "
+            "Falls back to the package version."
+        ),
+    )
+
     @field_validator("dockstore_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
@@ -73,6 +83,11 @@ class Settings(BaseSettings):
     def api_url(self) -> str:
         """Base URL of the instance's proprietary Dockstore API."""
         return f"{self.dockstore_url}/api"
+
+    @property
+    def user_agent(self) -> str:
+        """User-Agent sent with every request to Dockstore, e.g. 'dockstore-mcp/1.21.0'."""
+        return f"dockstore-mcp/{self.git_ref or __version__}"
 
 
 @lru_cache(maxsize=1)
