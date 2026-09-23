@@ -128,6 +128,9 @@ _PLAIN_TERM = re.compile(r"[\w][\w.-]*")
 #: Words that Lucene syntax reads as operators rather than keywords.
 _OPERATORS = frozenset({"AND", "OR", "NOT"})
 
+#: Syntax that requires or rules out a match, which a keyword found in a path would override.
+_REQUIRING = re.compile(r"\b(?:AND|NOT)\b|&&|(?:^|[\s(])[+!-]")
+
 #: An escaped character, which stays as it is, or a slash, which gets escaped.
 _ESCAPE_OR_SLASH = re.compile(r"(\\.)|/")
 
@@ -288,9 +291,32 @@ def _sort(sort_by: SortBy, sort_order: SortOrder, *, ranked: bool) -> list[Any]:
 
 def _keywords(text: str) -> dict[str, Any]:
     """Match the Lucene query ``text`` against an entry's metadata, or its plain keywords against its path."""
-    # Only a plain keyword can be looked for in a path; one that is negated, quoted,
-    # or has syntax of its own means something a substring of a path cannot.
-    terms = [term for term in text.split() if _PLAIN_TERM.fullmatch(term) and term not in _OPERATORS]
+    tokens = text.split()
+    # Keywords joined by AND must each match, but each can match in either place.
+    if len(tokens) > 1 and all(token == "AND" if index % 2 else _is_plain(token) for index, token in enumerate(tokens)):
+        terms = tokens[::2]
+        return {
+            "bool": {
+                "must": [_anywhere(term, [term] if index < _MAX_TERMS else []) for index, term in enumerate(terms)]
+            }
+        }
+    # Any other query that requires or rules out a match is left to the metadata,
+    # since a keyword found in a path would match an entry regardless.
+    if _REQUIRING.search(text):
+        return _anywhere(text, [])
+    # Only a plain keyword can be looked for in a path; one that is quoted or has
+    # syntax of its own means something a substring of a path cannot.
+    terms = [token for token in tokens if _is_plain(token)]
+    return _anywhere(text, terms[:_MAX_TERMS])
+
+
+def _is_plain(token: str) -> bool:
+    """Whether ``token`` is a keyword that stands for itself in Lucene syntax."""
+    return bool(_PLAIN_TERM.fullmatch(token)) and token not in _OPERATORS
+
+
+def _anywhere(text: str, terms: list[str]) -> dict[str, Any]:
+    """Match the Lucene query ``text`` against an entry's metadata, or any of ``terms`` against its path."""
     paths = [
         {
             "wildcard": {
@@ -301,7 +327,7 @@ def _keywords(text: str) -> dict[str, Any]:
                 }
             }
         }
-        for term in terms[:_MAX_TERMS]
+        for term in terms
         for field in _PATH_FIELDS
     ]
     return {

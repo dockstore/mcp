@@ -22,6 +22,7 @@ implemented, and are exercised against the canned Dockstore in :mod:`tests.fake_
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
+from unittest.mock import ANY
 
 import pytest
 from fastmcp import Client
@@ -459,12 +460,50 @@ async def test_search_by_a_field_does_not_weigh_keyword_matches(client: Client[A
 
 
 async def test_search_looks_for_only_plain_keywords_in_paths(client: Client[Any], dockstore: FakeDockstore) -> None:
-    query = 'gatk AND NOT -somatic "variant calling" (bwa OR bowtie2) haplo* author:jane'
+    query = 'gatk "variant calling" (bwa OR bowtie2) haplo* author:jane somatic~ haplotype\\-caller'
     _, body = await _search(client, dockstore, query=query)
     keywords = _keywords(body)
     query_string, *paths = keywords["bool"]["should"]
     assert query_string["query_string"]["query"] == query
     assert [clause["value"] for path in paths for clause in path["wildcard"].values()] == ["*gatk*", "*gatk*"]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "rna NOT quantification",
+        "rna -quantification",
+        "rna !quantification",
+        "+rna +quantification",
+        "rna && quantification",
+        "(rna OR dna) AND quantification",
+        "rna AND (-quantification)",
+        '"rna" AND quantification',
+    ],
+)
+async def test_search_skips_paths_when_matches_are_required(
+    client: Client[Any], dockstore: FakeDockstore, query: str
+) -> None:
+    """A keyword found in a path would match an entry that the query requires or rules out otherwise."""
+    _, body = await _search(client, dockstore, query=query)
+    keywords = _keywords(body)
+    assert keywords["bool"]["should"] == [{"query_string": {"query": query, "fields": ANY}}]
+
+
+async def test_search_needs_every_keyword_joined_by_and(client: Client[Any], dockstore: FakeDockstore) -> None:
+    """A keyword found in the path alone must not satisfy the others it is joined to."""
+    _, body = await _search(client, dockstore, query="rna AND quantification")
+    clauses = _keywords(body)["bool"]["must"]
+    assert len(clauses) == 2
+    for clause, term in zip(clauses, ["rna", "quantification"], strict=True):
+        query_string, *paths = clause["bool"]["should"]
+        assert clause["bool"]["minimum_should_match"] == 1
+        assert query_string["query_string"]["query"] == term
+        assert "topicAutomatic^4" in query_string["query_string"]["fields"]
+        assert [(field, wildcard["value"]) for path in paths for field, wildcard in path["wildcard"].items()] == [
+            ("full_workflow_path", f"*{term}*"),
+            ("tool_path", f"*{term}*"),
+        ]
 
 
 async def test_search_takes_slashes_literally(client: Client[Any], dockstore: FakeDockstore) -> None:
