@@ -69,16 +69,23 @@ class DockstoreApi:
 
     async def get_object(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """GET ``path`` and return the JSON object Dockstore answered with."""
-        payload = await self._get_json(path, params)
+        payload = await self._request("GET", path, params)
         if not isinstance(payload, dict):
             raise DockstoreError(f"Dockstore answered {path} with something other than an object.")
         return payload
 
     async def get_list(self, path: str, params: dict[str, Any] | None = None) -> list[Any]:
         """GET ``path`` and return the JSON array Dockstore answered with."""
-        payload = await self._get_json(path, params)
+        payload = await self._request("GET", path, params)
         if not isinstance(payload, list):
             raise DockstoreError(f"Dockstore answered {path} with something other than an array.")
+        return payload
+
+    async def post_object(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST ``body`` as JSON to ``path`` and return the JSON object Dockstore answered with."""
+        payload = await self._request("POST", path, None, body)
+        if not isinstance(payload, dict):
+            raise DockstoreError(f"Dockstore answered {path} with something other than an object.")
         return payload
 
     async def aclose(self) -> None:
@@ -87,7 +94,9 @@ class DockstoreApi:
             await self._client.aclose()
             self._client = None
 
-    async def _get_json(self, path: str, params: dict[str, Any] | None) -> Any:
+    async def _request(
+        self, method: str, path: str, params: dict[str, Any] | None, body: dict[str, Any] | None = None
+    ) -> Any:
         """Make the request and decode the body.
 
         Raises:
@@ -95,9 +104,9 @@ class DockstoreApi:
             DockstoreError: if the request failed for any other reason.
         """
         client = self._open()
-        logger.debug("GET %s%s params=%s", self._base_url, path, params)
+        logger.debug("%s %s%s params=%s", method, self._base_url, path, params)
         try:
-            response = await client.get(path, params=params)
+            response = await client.request(method, path, params=params, json=body)
         except httpx2.RequestError as error:
             logger.warning("Request to %s%s failed: %s", self._base_url, path, error)
             raise DockstoreError(f"Could not reach Dockstore at {self._base_url}.") from error

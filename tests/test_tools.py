@@ -15,8 +15,8 @@
 
 Two of the tools are still scaffolding, so the tests for those cover the shape of
 what is advertised to a client, plus the fact that calling one fails cleanly
-rather than returning something made up.  ``get_entry`` is implemented, and is
-exercised against the canned Dockstore in :mod:`tests.fake_dockstore`.
+rather than returning something made up.  ``get_entry`` and ``search_entries`` are
+implemented, and are exercised against the canned Dockstore in :mod:`tests.fake_dockstore`.
 """
 
 from datetime import UTC, datetime
@@ -40,17 +40,36 @@ from dockstore_mcp.models import (
     VersionField,
 )
 from dockstore_mcp.tools.entries import DEFAULT_ENTRY_FIELDS
-from fake_dockstore import CATEGORIES, FakeDockstore
+from fake_dockstore import CATEGORIES, SEARCH_HITS, FakeDockstore
 
 #: Every tool that is scaffolded but not implemented, with valid arguments.
-UNIMPLEMENTED = [
-    ("search_entries", {"query": "rna-seq"}),
+UNIMPLEMENTED: list[tuple[str, dict[str, Any]]] = [
     ("get_version", {"version_id": "a-version"}),
     ("get_file", {"version_id": "a-version", "path": "Dockstore.cwl"}),
 ]
 
 #: Arguments that reach the canned Dockstore, for the tools that are implemented.
-IMPLEMENTED = [("get_entry", {"entry_id": "16247"})]
+IMPLEMENTED: list[tuple[str, dict[str, Any]]] = [
+    ("get_entry", {"entry_id": "16247"}),
+    (
+        "search_entries",
+        {
+            "query": "rna-seq",
+            "entry_type": "workflow",
+            "descriptor_type": "WDL",
+            "authors": ["Jane Doe"],
+            "input_data": "Short-read sequencing data",
+            "input_format": "FASTQ",
+            "output_data": "Variant call data",
+            "output_format": "VCF",
+            "operation": "Variant calling",
+            "subject_area": "Genomics",
+            "sort_by": "stars",
+            "sort_order": "asc",
+            "limit": 25,
+        },
+    ),
+]
 
 
 async def _schema(client: Client[Any], name: str) -> dict[str, Any]:
@@ -77,18 +96,15 @@ async def test_search_takes_every_facet(client: Client[Any]) -> None:
     schema = await _schema(client, "search_entries")
     assert set(schema["properties"]) == {
         "query",
-        "name",
-        "description",
-        "author",
-        "organization",
-        "subject_area",
-        "operation",
-        "input_format",
-        "output_format",
-        "input_data",
-        "output_data",
         "entry_type",
         "descriptor_type",
+        "authors",
+        "input_data",
+        "input_format",
+        "output_data",
+        "output_format",
+        "operation",
+        "subject_area",
         "sort_by",
         "sort_order",
         "limit",
@@ -99,7 +115,7 @@ async def test_search_takes_every_facet(client: Client[Any]) -> None:
 async def test_search_arguments_have_sane_defaults(client: Client[Any]) -> None:
     properties = (await _schema(client, "search_entries"))["properties"]
     assert properties["sort_by"]["default"] == "relevance"
-    assert properties["sort_order"]["default"] == "desc"
+    assert properties["sort_order"]["default"] is None
     assert properties["limit"]["default"] == 10
     assert properties["limit"]["maximum"] == 100
 
@@ -311,3 +327,166 @@ async def test_get_entry_reports_an_entry_that_is_not_there(client: Client[Any],
             await client.call_tool("get_entry", {"entry_id": "404"})
     # Both endpoints were tried before giving up.
     assert dockstore.paths() == ["/api/workflows/published/404", "/api/containers/published/404"]
+
+
+async def _search(client: Client[Any], dockstore: FakeDockstore, **arguments: Any) -> tuple[Any, dict[str, Any]]:
+    """Call search_entries and return its structured result and the query Dockstore was sent."""
+    async with client:
+        result = await client.call_tool("search_entries", arguments)
+    assert result.structured_content is not None
+    [body] = dockstore.search_bodies()
+    return result.structured_content, body
+
+
+async def test_search_summarizes_each_hit(client: Client[Any], dockstore: FakeDockstore) -> None:
+    results, _ = await _search(client, dockstore, query="covid")
+    assert results["total_count"] == 42
+    # The hit with no path cannot be summarized, so it is left out.
+    assert results["returned_count"] == 2
+    workflow, tool = results["entries"]
+    assert workflow == {
+        "id": "16247",
+        "entry_type": "workflow",
+        "descriptor_type": "gxformat2",
+        "name": "COVID-19-ARTIC-ILLUMINA",
+        "path": "github.com/iwc-workflows/sars-cov-2-variant-calling/COVID-19-ARTIC-ILLUMINA",
+        "topic": "Variant calling from SARS-CoV-2 paired-end Illumina ARTIC data.",
+        "created_at": "2021-02-23T08:14:27.928000Z",
+        "updated_at": "2026-05-13T15:33:42Z",
+    }
+    assert (tool["id"], tool["entry_type"], tool["descriptor_type"]) == ("188", "tool", "CWL")
+    assert (tool["name"], tool["path"]) == ("pcawg-dkfz-workflow", "quay.io/pancancer/pcawg-dkfz-workflow")
+    assert tool["updated_at"] == "2022-03-31T21:37:31.404000Z"
+
+
+async def test_search_ids_lead_to_get_entry(client: Client[Any], dockstore: FakeDockstore) -> None:
+    results, _ = await _search(client, dockstore, query="covid")
+    entry = await _get_entry(client, entry_id=results["entries"][0]["id"], fields=["name"])
+    assert entry.name == "COVID-19-ARTIC-ILLUMINA"
+
+
+async def test_search_posts_to_the_search_endpoint(client: Client[Any], dockstore: FakeDockstore) -> None:
+    _, body = await _search(client, dockstore)
+    assert dockstore.paths() == ["/api/api/ga4gh/v2/extended/tools/entry/_search"]
+    assert body["size"] == 10
+    assert body["track_total_hits"] is True
+
+
+async def test_search_with_no_arguments_matches_everything(client: Client[Any], dockstore: FakeDockstore) -> None:
+    _, body = await _search(client, dockstore)
+    assert body["query"] == {"bool": {"filter": []}}
+    assert body["sort"] == [{"relevance": {"order": "desc", "unmapped_type": "double"}}]
+
+
+async def test_search_turns_each_facet_into_a_filter(client: Client[Any], dockstore: FakeDockstore) -> None:
+    arguments = {name: value for name, value in IMPLEMENTED[1][1].items() if name != "query"}
+    _, body = await _search(client, dockstore, **arguments)
+    assert "must" not in body["query"]["bool"]
+    assert body["query"]["bool"]["filter"] == [
+        {"term": {"entryTypeMetadata.type.keyword": "WORKFLOW"}},
+        {"term": {"descriptorType": "WDL"}},
+        {"match_phrase": {"all_authors.name": "Jane Doe"}},
+        {"match_phrase": {"input-data.displayName": "Short-read sequencing data"}},
+        {"match_phrase": {"input-format.displayName": "FASTQ"}},
+        {"match_phrase": {"output-data.displayName": "Variant call data"}},
+        {"match_phrase": {"output-format.displayName": "VCF"}},
+        {"match_phrase": {"operation.displayName": "Variant calling"}},
+        {"match_phrase": {"topic.displayName": "Genomics"}},
+    ]
+
+
+async def test_search_requires_every_author(client: Client[Any], dockstore: FakeDockstore) -> None:
+    _, body = await _search(client, dockstore, authors=["Jane Doe", " ", "John Roe"])
+    assert body["query"]["bool"]["filter"] == [
+        {"match_phrase": {"all_authors.name": "Jane Doe"}},
+        {"match_phrase": {"all_authors.name": "John Roe"}},
+    ]
+
+
+async def test_search_ignores_blank_arguments(client: Client[Any], dockstore: FakeDockstore) -> None:
+    _, body = await _search(client, dockstore, query="  ", operation="", subject_area=" ")
+    assert body["query"] == {"bool": {"filter": []}}
+
+
+async def test_search_filters_apptools_by_their_own_type(client: Client[Any], dockstore: FakeDockstore) -> None:
+    """Apptools share an index with tools, so the index alone cannot tell them apart."""
+    _, body = await _search(client, dockstore, entry_type="apptool")
+    assert body["query"]["bool"]["filter"] == [{"term": {"entryTypeMetadata.type.keyword": "APPTOOL"}}]
+
+
+async def test_search_ranks_keywords_by_where_they_match(client: Client[Any], dockstore: FakeDockstore) -> None:
+    _, body = await _search(client, dockstore, query="gatk  haplotype*caller")
+    [keywords] = body["query"]["bool"]["must"]
+    multi_match, *paths = keywords["bool"]["should"]
+    assert keywords["bool"]["minimum_should_match"] == 1
+    assert multi_match["multi_match"]["query"] == "gatk haplotype*caller"
+    assert "topicAutomatic^4" in multi_match["multi_match"]["fields"]
+    assert "operation.displayName^3" in multi_match["multi_match"]["fields"]
+    # Each keyword can match any part of a path, and its own wildcards are taken literally.
+    assert [(field, clause["value"]) for path in paths for field, clause in path["wildcard"].items()] == [
+        ("full_workflow_path", "*gatk*"),
+        ("tool_path", "*gatk*"),
+        ("full_workflow_path", r"*haplotype\*caller*"),
+        ("tool_path", r"*haplotype\*caller*"),
+    ]
+    assert body["sort"] == [{"archived": {"order": "asc", "unmapped_type": "boolean"}}, {"_score": {"order": "desc"}}]
+
+
+async def test_search_refuses_services(client: Client[Any], dockstore: FakeDockstore) -> None:
+    async with client:
+        with pytest.raises(ToolError, match="does not index services"):
+            await client.call_tool("search_entries", {"entry_type": "service"})
+    assert dockstore.requests == []
+
+
+async def test_search_reports_a_dockstore_without_search(client: Client[Any], dockstore: FakeDockstore) -> None:
+    dockstore.search_response = {key: value for key, value in SEARCH_HITS.items() if key != "hits"}
+    async with client:
+        with pytest.raises(ToolError, match="search may be unavailable"):
+            await client.call_tool("search_entries", {"query": "covid"})
+
+
+@pytest.mark.parametrize(
+    ("arguments", "first"),
+    [
+        ({"sort_by": "name"}, {"normalizedName": {"order": "asc", "missing": "_last", "unmapped_type": "keyword"}}),
+        ({"sort_by": "stars"}, {"stars_count": {"order": "desc", "missing": "_last", "unmapped_type": "long"}}),
+        (
+            {"sort_by": "updated", "sort_order": "asc"},
+            {"last_modified_date": {"order": "asc", "missing": "_last", "unmapped_type": "date"}},
+        ),
+    ],
+)
+async def test_search_sorts_by_a_field(
+    client: Client[Any], dockstore: FakeDockstore, arguments: dict[str, Any], first: dict[str, Any]
+) -> None:
+    """Each sort runs its natural way unless told otherwise, with ties going to the better match."""
+    _, body = await _search(client, dockstore, query="covid", **arguments)
+    assert body["sort"] == [first, {"_score": {"order": "desc"}}]
+
+
+async def test_search_breaks_ties_by_relevance_without_keywords(client: Client[Any], dockstore: FakeDockstore) -> None:
+    _, body = await _search(client, dockstore, sort_by="stars", sort_order="asc")
+    assert body["sort"][1] == {"relevance": {"order": "desc", "unmapped_type": "double"}}
+
+
+@pytest.mark.parametrize("query", [None, "covid"])
+async def test_search_can_put_the_worst_match_first(
+    client: Client[Any], dockstore: FakeDockstore, query: str | None
+) -> None:
+    _, body = await _search(client, dockstore, query=query, sort_order="asc")
+    [*_, relevance] = body["sort"]
+    assert next(iter(relevance.values()))["order"] == "asc"
+
+
+async def test_search_returns_as_many_as_asked_for(client: Client[Any], dockstore: FakeDockstore) -> None:
+    _, body = await _search(client, dockstore, limit=100)
+    assert body["size"] == 100
+
+
+@pytest.mark.parametrize("limit", [0, 101])
+async def test_search_refuses_an_unreasonable_limit(client: Client[Any], dockstore: FakeDockstore, limit: int) -> None:
+    async with client:
+        with pytest.raises(ToolError):
+            await client.call_tool("search_entries", {"limit": limit})
+    assert dockstore.requests == []

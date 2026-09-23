@@ -20,11 +20,12 @@ spells the same things another, an author with no name, a tool with two
 descriptor languages, and a tool that only implies where its source lives.
 """
 
+import json
 from typing import Any
 
 import httpx2
 
-__all__ = ["CATEGORIES", "TOOL", "TOOL_VERSIONS", "WORKFLOW", "WORKFLOW_VERSIONS", "FakeDockstore"]
+__all__ = ["CATEGORIES", "SEARCH_HITS", "TOOL", "TOOL_VERSIONS", "WORKFLOW", "WORKFLOW_VERSIONS", "FakeDockstore"]
 
 EDAM = "http://edamontology.org"
 
@@ -159,6 +160,52 @@ CATEGORIES: list[dict[str, Any]] = [
     },
 ]
 
+#: What the search endpoint answers with: the workflow and tool above as the
+#: index holds them, plus a hit with no path, which cannot be summarized.  Each
+#: document's own id is 0; the entry's identifier is the document's ``_id``.
+SEARCH_HITS: dict[str, Any] = {
+    "took": 3,
+    "timed_out": False,
+    "hits": {
+        "total": {"value": 42, "relation": "eq"},
+        "max_score": 12.5,
+        "hits": [
+            {
+                "_index": "workflows",
+                "_id": "16247",
+                "_score": 12.5,
+                "_source": {
+                    "entryTypeMetadata": {"type": "WORKFLOW", "sitePath": "workflows"},
+                    "descriptorType": "gxformat2",
+                    "workflowName": "COVID-19-ARTIC-ILLUMINA",
+                    "repository": "sars-cov-2-variant-calling",
+                    "full_workflow_path": WORKFLOW["full_workflow_path"],
+                    "topicAutomatic": WORKFLOW["topic"],
+                    "dbCreateDate": WORKFLOW["dbCreateDate"],
+                    "last_modified_date": WORKFLOW["last_modified_date"],
+                },
+            },
+            {
+                "_index": "tools",
+                "_id": "188",
+                "_score": 3.0,
+                "_source": {
+                    "entryTypeMetadata": {"type": "TOOL", "sitePath": "containers"},
+                    "descriptorType": ["CWL", "WDL"],
+                    "name": "pcawg-dkfz-workflow",
+                    "toolname": None,
+                    "tool_path": TOOL["tool_path"],
+                    "topicAutomatic": TOOL["topic"],
+                    "dbCreateDate": TOOL["dbCreateDate"],
+                    "last_modified_date": None,
+                    "dbUpdateDate": TOOL["dbUpdateDate"],
+                },
+            },
+            {"_index": "tools", "_id": "999", "_score": 1.0, "_source": {"entryTypeMetadata": {"type": "APPTOOL"}}},
+        ],
+    },
+}
+
 
 class FakeDockstore:
     """Answers the handful of Dockstore endpoints the tools call.
@@ -169,11 +216,17 @@ class FakeDockstore:
 
     def __init__(self) -> None:
         self.requests: list[httpx2.Request] = []
+        #: What the search endpoint answers with, which a test can replace.
+        self.search_response: Any = SEARCH_HITS
 
     @property
     def transport(self) -> httpx2.MockTransport:
         """A transport to hand to :class:`~dockstore_mcp.api.DockstoreApi`."""
         return httpx2.MockTransport(self._handle)
+
+    def search_bodies(self) -> list[Any]:
+        """The query of every search made so far."""
+        return [json.loads(request.content) for request in self.requests if request.method == "POST"]
 
     def paths(self) -> list[str]:
         """The path of every request made so far."""
@@ -191,6 +244,8 @@ class FakeDockstore:
                 return httpx2.Response(200, json=CATEGORIES)
             case "/api/entries/188/categories":
                 return httpx2.Response(200, json=[])
+            case "/api/api/ga4gh/v2/extended/tools/entry/_search" if request.method == "POST":
+                return httpx2.Response(200, json=self.search_response)
             case _:
                 return httpx2.Response(404, json={"code": 404, "message": "Entry not found."})
 

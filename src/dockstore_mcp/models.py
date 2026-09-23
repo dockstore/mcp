@@ -17,9 +17,8 @@ The enum members below are the vocabulary the model sees in the tool schemas, so
 they are named for what a caller would say rather than for Dockstore's internal
 spelling.  Where the two differ, the value is the wire form the API expects.
 
-TODO: confirm every wire value against the Dockstore API before the tools are
-wired up to it; the search facets in particular are not all spelled the way the
-webservice's own enums are.
+TODO: confirm every wire value against the Dockstore API before the remaining
+tools are wired up to it.
 """
 
 from datetime import datetime
@@ -79,7 +78,6 @@ class SortBy(StrEnum):
     RELEVANCE = "relevance"
     NAME = "name"
     STARS = "stars"
-    CREATED = "created"
     UPDATED = "updated"
 
 
