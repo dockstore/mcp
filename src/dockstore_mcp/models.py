@@ -45,6 +45,7 @@ __all__ = [
     "Tool",
     "ToolClass",
     "ToolFile",
+    "ToolPage",
     "ToolVersion",
     "TrsDescriptorType",
     "TrsInfo",
@@ -231,6 +232,8 @@ class TrsDescriptorType(StrEnum):
     NEXTFLOW = "NFL"
     GALAXY = "GALAXY"
     SNAKEMAKE = "SMK"
+    JUPYTER = "JUPYTER"
+    SERVICE = "SERVICE"
 
 
 class Checksum(BaseModel):
@@ -288,6 +291,20 @@ class Tool(BaseModel):
     has_checker: bool | None = Field(default=None, description="Whether the tool has a checker workflow.")
     checker_url: str | None = Field(default=None, description="TRS URL of the checker workflow, if any.")
     versions: list[ToolVersion] | None = Field(default=None, description="Every version of the tool.")
+
+
+class ToolPage(BaseModel):
+    """One page of TRS tools, with enough context to fetch the rest."""
+
+    tools: list[Tool] = Field(description="The tools on this page, each with all of its versions.")
+    offset: int = Field(description="Which page this is, counting from 0.")
+    limit: int = Field(description="Most tools a page holds.")
+    total: int | None = Field(
+        default=None, description="How many tools there are across every page, if Dockstore reported it."
+    )
+    next_offset: int | None = Field(
+        default=None, description="Offset of the next page; unset when this is the last page."
+    )
 
 
 class FileWrapper(BaseModel):

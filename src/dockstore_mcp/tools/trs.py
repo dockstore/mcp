@@ -36,6 +36,7 @@ from dockstore_mcp.models import (
     Tool,
     ToolClass,
     ToolFile,
+    ToolPage,
     ToolVersion,
     TrsDescriptorType,
     TrsInfo,
@@ -73,6 +74,13 @@ def _segment(value: str) -> str:
     return quote(value, safe="")
 
 
+def _last_page_offset(response: httpx.Response) -> int | None:
+    """The offset in a ``/tools`` response's ``last_page`` header, if it has one."""
+    link = response.headers.get("last_page")
+    offset = httpx.URL(link).params.get("offset") if link else None
+    return int(offset) if offset is not None and offset.isdigit() else None
+
+
 def register(mcp: FastMCP, settings: Settings) -> None:
     """Add the TRS V2 tools to ``mcp``."""
 
@@ -81,6 +89,12 @@ def register(mcp: FastMCP, settings: Settings) -> None:
     # client as more TRS-backed tools join this module.
     client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT, headers={"User-Agent": settings.user_agent})
 
+    async def get(path: str, params: dict[str, Any] | None = None) -> httpx.Response:
+        """GET ``path`` under the TRS API root, raising on an error status."""
+        response = await client.get(f"{settings.trs_url}{path}", params=params)
+        response.raise_for_status()
+        return response
+
     async def get_json(path: str, params: dict[str, Any] | None = None) -> Any:
         """GET ``path`` under the TRS API root and return its parsed body.
 
@@ -88,9 +102,29 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         keys, so they skip ``normalize_keys``, which would also mangle data-valued
         keys such as the 'CWL' in ``descriptor_type_version``.
         """
-        response = await client.get(f"{settings.trs_url}{path}", params=params)
-        response.raise_for_status()
-        return response.json()
+        return (await get(path, params)).json()
+
+    async def get_tool_page(filters: dict[str, Any], limit: int, offset: int) -> ToolPage:
+        """Fetch one page of ``/tools`` matching ``filters``, and work out the total across every page.
+
+        Dockstore reports the last page's offset in a ``last_page`` header but no
+        total, and computes that offset as ``floor(total / limit)``, which is one
+        page past the end whenever ``limit`` divides the total evenly. So the total
+        is counted from the last page's contents, fetching it if this isn't it.
+        """
+        response = await get("/tools", {**filters, "limit": limit, "offset": offset})
+        tools = [Tool.model_validate(item) for item in response.json()]
+        total = None
+        last_offset = _last_page_offset(response)
+        if last_offset is not None:
+            if last_offset == offset:
+                last_page_size = len(tools)
+            else:
+                last_page = await get_json("/tools", {**filters, "limit": limit, "offset": last_offset})
+                last_page_size = len(last_page)
+            total = last_offset * limit + last_page_size
+        more = total is not None and (offset + 1) * limit < total
+        return ToolPage(tools=tools, offset=offset, limit=limit, total=total, next_offset=offset + 1 if more else None)
 
     def version_path(tool_id: str, version_id: str) -> str:
         return f"/tools/{_segment(tool_id)}/versions/{_segment(version_id)}"
@@ -128,19 +162,19 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return [ToolClass.model_validate(item) for item in normalize_keys(response.json())]
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def list_tools(limit: Limit = DEFAULT_PAGE_SIZE, offset: Offset = 0) -> list[Tool]:
+    async def list_tools(limit: Limit = DEFAULT_PAGE_SIZE, offset: Offset = 0) -> ToolPage:
         """List one page of every tool and workflow this Dockstore instance's TRS API serves.
 
         Reach for search_tools instead to narrow the list by name, language, class,
-        or other filters; this one pages through everything. Ask for the next page by
-        incrementing ``offset`` by one (it is a page number, not an item index); a
-        page shorter than ``limit`` is the last one.
+        or other filters; this one pages through everything. The page's ``total``
+        says how many tools there are in all, so to count them, ask for one page
+        with ``limit`` 1. Fetch the next page by passing ``next_offset`` as
+        ``offset`` (a page number, not an item index); it is unset on the last page.
 
         Returns:
-            Up to ``limit`` tools, each with all of its versions.
+            Up to ``limit`` tools, each with all of its versions, plus the total and next page's offset.
         """
-        data = await get_json("/tools", {"limit": limit, "offset": offset})
-        return [Tool.model_validate(item) for item in data]
+        return await get_tool_page({}, limit, offset)
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def search_tools(
@@ -166,15 +200,15 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         ] = None,
         limit: Limit = DEFAULT_PAGE_SIZE,
         offset: Offset = 0,
-    ) -> list[Tool]:
+    ) -> ToolPage:
         """Find tools and workflows through the TRS API by name, language, class, and other filters.
 
         Every filter given must match; text filters match substrings. Page through
-        the results as with list_tools. For richer keyword search with facets, the
-        Dockstore Search page equivalent is search_entries.
+        the results, or count them, as with list_tools. For richer keyword search
+        with facets, the Dockstore Search page equivalent is search_entries.
 
         Returns:
-            Up to ``limit`` matching tools, each with all of its versions.
+            Up to ``limit`` matching tools, each with all of its versions, plus the total and next page's offset.
         """
         filters = {
             "name": name,
@@ -189,8 +223,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             "checker": None if checker is None else str(checker).lower(),
         }
         params = {key: value for key, value in filters.items() if value is not None}
-        data = await get_json("/tools", {**params, "limit": limit, "offset": offset})
-        return [Tool.model_validate(item) for item in data]
+        return await get_tool_page(params, limit, offset)
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def get_tool(tool_id: ToolId) -> Tool:
@@ -228,7 +261,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
     async def get_tool_descriptor(
         tool_id: ToolId, version_id: VersionId, descriptor_type: DescriptorType
     ) -> FileWrapper:
-        """Fetch the primary descriptor of one version: the main CWL, WDL, Nextflow, etc. file.
+        """Fetch the primary descriptor of one version: the main CWL, WDL, Nextflow, etc. file, or notebook.
 
         Reach for get_tool_files to see what other files the version has, and
         get_tool_descriptor_by_path to fetch one of them.
