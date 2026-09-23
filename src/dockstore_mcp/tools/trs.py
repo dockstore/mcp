@@ -38,6 +38,7 @@ from dockstore_mcp.models import (
     ToolClass,
     ToolFile,
     ToolPage,
+    ToolSummary,
     ToolVersion,
     TrsDescriptorType,
     TrsInfo,
@@ -55,6 +56,9 @@ REQUEST_TIMEOUT = 30.0
 #: its versions.
 DEFAULT_PAGE_SIZE = 20
 
+#: How much of a tool's description a summary keeps.
+SUMMARY_DESCRIPTION_LENGTH = 200
+
 ToolId = Annotated[
     str,
     Field(description="TRS tool id, e.g. '#workflow/github.com/org/repo/name', as list_tools or search_tools give."),
@@ -62,6 +66,15 @@ ToolId = Annotated[
 VersionId = Annotated[str, Field(description="Version name, e.g. 'master' or '1.0', as list_tool_versions gives.")]
 DescriptorType = Annotated[TrsDescriptorType, Field(description="Descriptor language of the files to fetch.")]
 Limit = Annotated[int, Field(ge=1, le=1000, description="Most tools to return in this page.")]
+Summary = Annotated[
+    bool,
+    Field(
+        description=(
+            "Return each tool as a short summary (id, name, languages, version names, the start of its "
+            "description) instead of in full. Much smaller: use it to scan or group many tools."
+        )
+    ),
+]
 Offset = Annotated[
     int,
     Field(ge=0, description="Which page to return, counting from 0: Dockstore treats offset as a page number."),
@@ -75,6 +88,24 @@ def _segment(value: str) -> str:
     a leading '#'), which Dockstore only accepts fully encoded.
     """
     return quote(value, safe="")
+
+
+def _summarize(tool: Tool) -> ToolSummary:
+    """Reduce ``tool`` to a :class:`ToolSummary`, shortening its description."""
+    versions = tool.versions or []
+    descriptor_types = sorted({language for version in versions for language in version.descriptor_type or []})
+    description = " ".join((tool.description or "").split()) or None
+    if description and len(description) > SUMMARY_DESCRIPTION_LENGTH:
+        description = description[: SUMMARY_DESCRIPTION_LENGTH - 1].rstrip() + "…"
+    return ToolSummary(
+        id=tool.id,
+        name=tool.name,
+        organization=tool.organization,
+        tool_class=tool.toolclass.name if tool.toolclass else None,
+        descriptor_types=descriptor_types,
+        version_names=[version.name for version in versions if version.name],
+        description=description,
+    )
 
 
 def _last_page_offset(response: httpx.Response) -> int | None:
@@ -107,7 +138,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         """
         return (await get(path, params)).json()
 
-    async def get_tool_page(filters: dict[str, Any], limit: int, offset: int) -> ToolPage:
+    async def get_tool_page(filters: dict[str, Any], limit: int, offset: int, summary: bool) -> ToolPage:
         """Fetch one page of ``/tools`` matching ``filters``, and work out the total across every page.
 
         Dockstore reports the last page's offset in a ``last_page`` header but no
@@ -127,7 +158,13 @@ def register(mcp: FastMCP, settings: Settings) -> None:
                 last_page_size = len(last_page)
             total = last_offset * limit + last_page_size
         more = total is not None and (offset + 1) * limit < total
-        return ToolPage(tools=tools, offset=offset, limit=limit, total=total, next_offset=offset + 1 if more else None)
+        return ToolPage(
+            tools=[_summarize(tool) for tool in tools] if summary else tools,
+            offset=offset,
+            limit=limit,
+            total=total,
+            next_offset=offset + 1 if more else None,
+        )
 
     def version_path(tool_id: str, version_id: str) -> str:
         return f"/tools/{_segment(tool_id)}/versions/{_segment(version_id)}"
@@ -165,7 +202,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return [ToolClass.model_validate(item) for item in normalize_keys(response.json())]
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def list_tools(limit: Limit = DEFAULT_PAGE_SIZE, offset: Offset = 0) -> ToolPage:
+    async def list_tools(limit: Limit = DEFAULT_PAGE_SIZE, offset: Offset = 0, summary: Summary = False) -> ToolPage:
         """List one page of every tool and workflow this Dockstore instance's TRS API serves.
 
         Reach for search_tools instead to narrow the list by name, language, class,
@@ -175,9 +212,10 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         ``offset`` (a page number, not an item index); it is unset on the last page.
 
         Returns:
-            Up to ``limit`` tools, each with all of its versions, plus the total and next page's offset.
+            Up to ``limit`` tools, each with all of its versions (or summarized, if ``summary``), plus the
+            total and next page's offset.
         """
-        return await get_tool_page({}, limit, offset)
+        return await get_tool_page({}, limit, offset, summary)
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def search_tools(
@@ -203,6 +241,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         ] = None,
         limit: Limit = DEFAULT_PAGE_SIZE,
         offset: Offset = 0,
+        summary: Summary = False,
     ) -> ToolPage:
         """Find tools and workflows through the TRS API by name, language, class, and other filters.
 
@@ -211,7 +250,8 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         with facets, the Dockstore Search page equivalent is search_entries.
 
         Returns:
-            Up to ``limit`` matching tools, each with all of its versions, plus the total and next page's offset.
+            Up to ``limit`` matching tools, each with all of its versions (or summarized, if ``summary``), plus
+            the total and next page's offset.
         """
         filters = {
             "name": name,
@@ -226,7 +266,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             "checker": None if checker is None else str(checker).lower(),
         }
         params = {key: value for key, value in filters.items() if value is not None}
-        return await get_tool_page(params, limit, offset)
+        return await get_tool_page(params, limit, offset, summary)
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def get_tool(tool_id: ToolId) -> Tool:

@@ -150,7 +150,8 @@ the full list.
 The TRS tools, from `get_trs_info` to `get_tool_containerfile`, call Dockstore's GA4GH
 TRS V2 API directly. They form a chain: `list_tools` and `search_tools` yield tool ids, a
 tool yields version names, and a version's `get_tool_files` yields the paths that
-`get_tool_descriptor_by_path` takes.
+`get_tool_descriptor_by_path` takes. Pass `summary` to `list_tools` or `search_tools` to get
+each tool's id, languages, and version names without its full README and version details.
 
 The last four are scaffolding and are not implemented yet. They are a chain too:
 `search_entries` yields entry identifiers, an entry yields version identifiers, and a
