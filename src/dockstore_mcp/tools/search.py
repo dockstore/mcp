@@ -26,7 +26,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import BaseModel, Field
 
-from dockstore_mcp.api import DockstoreApi
+from dockstore_mcp.api import BadRequestError, DockstoreApi
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import DescriptorLanguage, EntrySummary, EntryType, SortBy, SortOrder
 from dockstore_mcp.tools.entries import _descriptor_type, _entry_type, _first_of, _timestamp
@@ -61,7 +61,7 @@ _NATURAL_ORDER = {
     SortBy.UPDATED: SortOrder.DESCENDING,
 }
 
-#: The most keywords a query is split into, as on the Search page.
+#: The most keywords of a query that are looked for in paths, as on the Search page.
 _MAX_TERMS = 20
 
 #: Where ``query`` looks, and how much a match in each place counts for.  The
@@ -112,8 +112,14 @@ _SOURCE_FIELDS = [
     "dbUpdateDate",
 ]
 
-#: Characters that have a meaning of their own in a wildcard query.
-_WILDCARD_SPECIALS = re.compile(r"([\\*?])")
+#: A keyword that stands for itself in Lucene syntax, and so can be looked for in a path.
+_PLAIN_TERM = re.compile(r"[\w][\w.-]*")
+
+#: Words that Lucene syntax reads as operators rather than keywords.
+_OPERATORS = frozenset({"AND", "OR", "NOT"})
+
+#: An escaped character, which stays as it is, or a slash, which gets escaped.
+_ESCAPE_OR_SLASH = re.compile(r"(\\.)|/")
 
 
 class SearchResults(BaseModel):
@@ -153,9 +159,17 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         Arguments left unset are not searched on. ``query`` searches across all of an
         entry's metadata and ranks the results; the other arguments each narrow the
         results to entries with matching metadata of one kind. Several arguments can be
-        combined, and an entry has to satisfy all of them to match. The facet arguments
-        match any entry whose metadata contains the words given, in order and ignoring
-        case, so 'FASTQ' matches 'FASTQ-sanger'.
+        combined, and an entry has to satisfy all of them to match.
+
+        ``query`` and the facet arguments (``author`` through ``subject_area``) take
+        Lucene query syntax, ignoring case: quotes match a phrase ('"variant calling"'),
+        AND, OR, NOT, +, -, and parentheses combine words ('BAM OR CRAM', '-somatic'),
+        * and ? are wildcards ('GATK*'), and ~ matches similar spellings ('haplotyp~').
+        ``query`` matches entries with any of its words, ranking those with more of them
+        first; a facet argument matches entries with all of its words, in any order, so
+        'FASTQ' matches 'FASTQ-sanger'. A slash is taken literally, so regular
+        expressions are not supported. Escape any of + - = && || > < ! ( ) { } [ ] ^
+        " ~ * ? : \\ with a backslash to search for it literally.
 
         Args:
             query: Keywords to look for anywhere in an entry's metadata, path, or descriptors.
@@ -182,7 +196,7 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
             query,
             entry_type=entry_type,
             descriptor_type=descriptor_type,
-            phrases={
+            facets={
                 "all_authors.name": author,
                 "input-data.displayName": input_data,
                 "input-format.displayName": input_format,
@@ -195,7 +209,13 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
             sort_order=sort_order or _NATURAL_ORDER[sort_by],
             limit=limit,
         )
-        response = await api.post_object(SEARCH_PATH, body)
+        try:
+            response = await api.post_object(SEARCH_PATH, body)
+        except BadRequestError as error:
+            raise ToolError(
+                "Dockstore could not run the search. Check the Lucene syntax of the search terms, "
+                "and escape any special characters meant literally with a backslash."
+            ) from error
         return _to_results(response)
 
 
@@ -204,7 +224,7 @@ def _query(
     *,
     entry_type: EntryType | None,
     descriptor_type: DescriptorLanguage | None,
-    phrases: dict[str, str | None],
+    facets: dict[str, str | None],
     sort_by: SortBy,
     sort_order: SortOrder,
     limit: int,
@@ -219,7 +239,11 @@ def _query(
     if descriptor_type is not None:
         # A tool lists every language it has a descriptor in; a term matches any of them.
         filters.append({"term": {"descriptorType": descriptor_type.value}})
-    filters.extend({"match_phrase": {field: value}} for field, value in phrases.items() if value and value.strip())
+    filters.extend(
+        {"query_string": {"query": _escape_slashes(value), "default_field": field, "default_operator": "AND"}}
+        for field, value in facets.items()
+        if value and value.strip()
+    )
 
     body: dict[str, Any] = {
         "size": limit,
@@ -227,10 +251,10 @@ def _query(
         "_source": _SOURCE_FIELDS,
         "query": {"bool": {"filter": filters}},
     }
-    terms = (query or "").split()[:_MAX_TERMS]
-    if terms:
-        body["query"]["bool"]["must"] = [_keywords(" ".join(terms), terms)]
-    body["sort"] = _sort(sort_by, sort_order, ranked=bool(terms))
+    text = (query or "").strip()
+    if text:
+        body["query"]["bool"]["must"] = [_keywords(text)]
+    body["sort"] = _sort(sort_by, sort_order, ranked=bool(text))
     return body
 
 
@@ -248,32 +272,35 @@ def _sort(sort_by: SortBy, sort_order: SortOrder, *, ranked: bool) -> list[Any]:
     return [{field: {"order": sort_order.value, "missing": "_last", "unmapped_type": unmapped_type}}, relevance]
 
 
-def _keywords(text: str, terms: list[str]) -> dict[str, Any]:
-    """Match ``text`` against an entry's metadata, or any of ``terms`` against its path."""
+def _keywords(text: str) -> dict[str, Any]:
+    """Match the Lucene query ``text`` against an entry's metadata, or its plain keywords against its path."""
+    # Only a plain keyword can be looked for in a path; one that is negated, quoted,
+    # or has syntax of its own means something a substring of a path cannot.
+    terms = [term for term in text.split() if _PLAIN_TERM.fullmatch(term) and term not in _OPERATORS]
     paths = [
         {
             "wildcard": {
                 field: {
-                    "value": f"*{_escape_wildcard(term)}*",
+                    "value": f"*{term}*",
                     "case_insensitive": True,
                     "boost": _PATH_BOOST,
                 }
             }
         }
-        for term in terms
+        for term in terms[:_MAX_TERMS]
         for field in _PATH_FIELDS
     ]
     return {
         "bool": {
-            "should": [{"multi_match": {"query": text, "fields": _QUERY_FIELDS}}, *paths],
+            "should": [{"query_string": {"query": _escape_slashes(text), "fields": _QUERY_FIELDS}}, *paths],
             "minimum_should_match": 1,
         }
     }
 
 
-def _escape_wildcard(term: str) -> str:
-    """Make every character of ``term`` stand for itself in a wildcard query."""
-    return _WILDCARD_SPECIALS.sub(r"\\\1", term)
+def _escape_slashes(text: str) -> str:
+    """Escape each slash in the Lucene query ``text``, which would otherwise start a regex."""
+    return _ESCAPE_OR_SLASH.sub(lambda match: match[1] or r"\/", text)
 
 
 def _to_results(response: dict[str, Any]) -> SearchResults:

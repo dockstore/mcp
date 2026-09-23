@@ -385,13 +385,26 @@ async def test_search_turns_each_facet_into_a_filter(client: Client[Any], dockst
     assert body["query"]["bool"]["filter"] == [
         {"term": {"entryTypeMetadata.type.keyword": "WORKFLOW"}},
         {"term": {"descriptorType": "WDL"}},
-        {"match_phrase": {"all_authors.name": "Jane Doe"}},
-        {"match_phrase": {"input-data.displayName": "Short-read sequencing data"}},
-        {"match_phrase": {"input-format.displayName": "FASTQ"}},
-        {"match_phrase": {"output-data.displayName": "Variant call data"}},
-        {"match_phrase": {"output-format.displayName": "VCF"}},
-        {"match_phrase": {"operation.displayName": "Variant calling"}},
-        {"match_phrase": {"topic.displayName": "Genomics"}},
+        *(
+            {"query_string": {"query": value, "default_field": field, "default_operator": "AND"}}
+            for field, value in [
+                ("all_authors.name", "Jane Doe"),
+                ("input-data.displayName", "Short-read sequencing data"),
+                ("input-format.displayName", "FASTQ"),
+                ("output-data.displayName", "Variant call data"),
+                ("output-format.displayName", "VCF"),
+                ("operation.displayName", "Variant calling"),
+                ("topic.displayName", "Genomics"),
+            ]
+        ),
+    ]
+
+
+async def test_search_passes_facet_syntax_through(client: Client[Any], dockstore: FakeDockstore) -> None:
+    _, body = await _search(client, dockstore, input_format='"BAM" OR CRA?', author="O'Connor~")
+    assert [clause["query_string"]["query"] for clause in body["query"]["bool"]["filter"]] == [
+        "O'Connor~",
+        '"BAM" OR CRA?',
     ]
 
 
@@ -407,21 +420,45 @@ async def test_search_filters_apptools_by_their_own_type(client: Client[Any], do
 
 
 async def test_search_ranks_keywords_by_where_they_match(client: Client[Any], dockstore: FakeDockstore) -> None:
-    _, body = await _search(client, dockstore, query="gatk  haplotype*caller")
+    _, body = await _search(client, dockstore, query=" gatk  haplotype-caller ")
     [keywords] = body["query"]["bool"]["must"]
-    multi_match, *paths = keywords["bool"]["should"]
+    query_string, *paths = keywords["bool"]["should"]
     assert keywords["bool"]["minimum_should_match"] == 1
-    assert multi_match["multi_match"]["query"] == "gatk haplotype*caller"
-    assert "topicAutomatic^4" in multi_match["multi_match"]["fields"]
-    assert "operation.displayName^3" in multi_match["multi_match"]["fields"]
-    # Each keyword can match any part of a path, and its own wildcards are taken literally.
+    assert query_string["query_string"]["query"] == "gatk  haplotype-caller"
+    assert "topicAutomatic^4" in query_string["query_string"]["fields"]
+    assert "operation.displayName^3" in query_string["query_string"]["fields"]
+    # Each keyword can match any part of a path.
     assert [(field, clause["value"]) for path in paths for field, clause in path["wildcard"].items()] == [
         ("full_workflow_path", "*gatk*"),
         ("tool_path", "*gatk*"),
-        ("full_workflow_path", r"*haplotype\*caller*"),
-        ("tool_path", r"*haplotype\*caller*"),
+        ("full_workflow_path", "*haplotype-caller*"),
+        ("tool_path", "*haplotype-caller*"),
     ]
     assert body["sort"] == [{"archived": {"order": "asc", "unmapped_type": "boolean"}}, {"_score": {"order": "desc"}}]
+
+
+async def test_search_looks_for_only_plain_keywords_in_paths(client: Client[Any], dockstore: FakeDockstore) -> None:
+    query = 'gatk AND NOT -somatic "variant calling" (bwa OR bowtie2) haplo* author:jane'
+    _, body = await _search(client, dockstore, query=query)
+    [keywords] = body["query"]["bool"]["must"]
+    query_string, *paths = keywords["bool"]["should"]
+    assert query_string["query_string"]["query"] == query
+    assert [clause["value"] for path in paths for clause in path["wildcard"].values()] == ["*gatk*", "*gatk*"]
+
+
+async def test_search_takes_slashes_literally(client: Client[Any], dockstore: FakeDockstore) -> None:
+    _, body = await _search(client, dockstore, query=r"github.com/iwc\/x \\/y", input_format="a/b")
+    [keywords] = body["query"]["bool"]["must"]
+    assert keywords["bool"]["should"][0]["query_string"]["query"] == r"github.com\/iwc\/x \\\/y"
+    assert body["query"]["bool"]["filter"][0]["query_string"]["query"] == r"a\/b"
+
+
+async def test_search_reports_syntax_dockstore_rejects(client: Client[Any], dockstore: FakeDockstore) -> None:
+    dockstore.search_status = 400
+    dockstore.search_response = {"error": "parse_exception"}
+    async with client:
+        with pytest.raises(ToolError, match="Lucene syntax"):
+            await client.call_tool("search_entries", {"query": "(unbalanced"})
 
 
 async def test_search_refuses_services(client: Client[Any], dockstore: FakeDockstore) -> None:

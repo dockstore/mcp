@@ -27,7 +27,7 @@ from fastmcp.exceptions import ToolError
 from dockstore_mcp import __version__
 from dockstore_mcp.config import Settings
 
-__all__ = ["DEFAULT_TIMEOUT", "DockstoreApi", "DockstoreError", "NotFoundError"]
+__all__ = ["DEFAULT_TIMEOUT", "BadRequestError", "DockstoreApi", "DockstoreError", "NotFoundError"]
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,10 @@ class DockstoreError(ToolError):
 
 class NotFoundError(DockstoreError):
     """Dockstore has nothing at the requested address."""
+
+
+class BadRequestError(DockstoreError):
+    """Dockstore rejected the request as malformed."""
 
 
 class DockstoreApi:
@@ -101,6 +105,7 @@ class DockstoreApi:
 
         Raises:
             NotFoundError: if Dockstore answered 404.
+            BadRequestError: if Dockstore answered 400.
             DockstoreError: if the request failed for any other reason.
         """
         client = self._open()
@@ -113,6 +118,9 @@ class DockstoreApi:
 
         if response.status_code == httpx2.codes.NOT_FOUND:
             raise NotFoundError(f"Dockstore has nothing at {path}.")
+        if response.status_code == httpx2.codes.BAD_REQUEST:
+            logger.warning("Dockstore rejected %s%s as malformed", self._base_url, path)
+            raise BadRequestError(f"Dockstore rejected the request to {path} as malformed.")
         if response.is_error:
             logger.warning("Dockstore answered %s%s with %s", self._base_url, path, response.status_code)
             raise DockstoreError(f"Dockstore answered with HTTP {response.status_code}.")

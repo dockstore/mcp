@@ -218,6 +218,7 @@ class FakeDockstore:
         self.requests: list[httpx2.Request] = []
         #: What the search endpoint answers with, which a test can replace.
         self.search_response: Any = SEARCH_HITS
+        self.search_status = 200
 
     @property
     def transport(self) -> httpx2.MockTransport:
@@ -245,7 +246,7 @@ class FakeDockstore:
             case "/api/entries/188/categories":
                 return httpx2.Response(200, json=[])
             case "/api/api/ga4gh/v2/extended/tools/entry/_search" if request.method == "POST":
-                return httpx2.Response(200, json=self.search_response)
+                return httpx2.Response(self.search_status, json=self.search_response)
             case _:
                 return httpx2.Response(404, json={"code": 404, "message": "Entry not found."})
 
