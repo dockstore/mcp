@@ -128,8 +128,8 @@ _PLAIN_TERM = re.compile(r"[\w][\w.-]*")
 #: Words that Lucene syntax reads as operators rather than keywords.
 _OPERATORS = frozenset({"AND", "OR", "NOT"})
 
-#: Syntax that requires or rules out a match, which a keyword found in a path would override.
-_REQUIRING = re.compile(r"\b(?:AND|NOT)\b|&&|(?:^|[\s(])[+!-]")
+#: A single clause of Lucene syntax that neither requires nor rules out a match on its own.
+_OPTIONAL_CLAUSE = re.compile(r"[^\s()\[\]{}\"&|+!-][^\s()\[\]{}\"&|]*")
 
 #: An escaped character, which stays as it is, or a slash, which gets escaped.
 _ESCAPE_OR_SLASH = re.compile(r"(\\.)|/")
@@ -178,9 +178,9 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         Lucene query syntax, ignoring case: quotes match a phrase ('"variant calling"'),
         AND, OR, NOT, +, -, and parentheses combine words ('BAM OR CRAM', '-somatic'),
         * and ? are wildcards ('GATK*'), and ~ matches similar spellings ('haplotyp~').
-        ``query`` matches entries with any of its words, ranking those with more of them
-        first; a facet argument matches entries with all of its words, in any order, so
-        'FASTQ' matches 'FASTQ-sanger'. A slash is taken literally, so regular
+        ``query`` and the facet arguments match entries with all of their words, in any
+        order, unless joined by OR, so 'FASTQ' matches 'FASTQ-sanger' and 'FASTA VCF'
+        matches entries taking both formats, while 'FASTA OR VCF' matches either. A slash is taken literally, so regular
         expressions are not supported. Escape any of + - = && || > < ! ( ) { } [ ] ^
         " ~ * ? : \\ with a backslash to search for it literally.
 
@@ -292,27 +292,42 @@ def _sort(sort_by: SortBy, sort_order: SortOrder, *, ranked: bool) -> list[Any]:
 def _keywords(text: str) -> dict[str, Any]:
     """Match the Lucene query ``text`` against an entry's metadata, or its plain keywords against its path."""
     tokens = text.split()
-    # Keywords joined by AND must each match, but each can match in either place.
-    if len(tokens) > 1 and all(token == "AND" if index % 2 else _is_plain(token) for index, token in enumerate(tokens)):
-        terms = tokens[::2]
+    # Keywords are all needed, whether joined by AND or nothing at all, but each can
+    # match in either place.
+    terms = _all_of(tokens)
+    if terms:
+        if len(terms) == 1:
+            return _anywhere(terms[0], terms)
         return {
             "bool": {
                 "must": [_anywhere(term, [term] if index < _MAX_TERMS else []) for index, term in enumerate(terms)]
             }
         }
-    # Any other query that requires or rules out a match is left to the metadata,
-    # since a keyword found in a path would match an entry regardless.
-    if _REQUIRING.search(text):
-        return _anywhere(text, [])
-    # Only a plain keyword can be looked for in a path; one that is quoted or has
-    # syntax of its own means something a substring of a path cannot.
-    terms = [token for token in tokens if _is_plain(token)]
-    return _anywhere(text, terms[:_MAX_TERMS])
+    # Clauses joined by OR need only one to match, so a keyword found in a path will do.
+    # Only a plain keyword can be looked for in a path; one with syntax of its own
+    # means something a substring of a path cannot.
+    clauses = tokens[::2]
+    if all(token == "OR" for token in tokens[1::2]) and all(_is_optional(clause) for clause in clauses):
+        return _anywhere(text, [clause for clause in clauses if _is_plain(clause)][:_MAX_TERMS])
+    # Any other query needs more than one match, or rules one out, so is left to the
+    # metadata, since a keyword found in a path would match an entry regardless.
+    return _anywhere(text, [])
+
+
+def _all_of(tokens: list[str]) -> list[str] | None:
+    """The keywords in ``tokens``, if all are plain and joined by AND throughout or by whitespace alone."""
+    terms = tokens[::2] if len(tokens) > 1 and all(token == "AND" for token in tokens[1::2]) else tokens
+    return terms if all(_is_plain(term) for term in terms) else None
 
 
 def _is_plain(token: str) -> bool:
     """Whether ``token`` is a keyword that stands for itself in Lucene syntax."""
     return bool(_PLAIN_TERM.fullmatch(token)) and token not in _OPERATORS
+
+
+def _is_optional(token: str) -> bool:
+    """Whether ``token`` is a single clause of Lucene syntax that matching is optional for."""
+    return bool(_OPTIONAL_CLAUSE.fullmatch(token)) and token not in _OPERATORS
 
 
 def _anywhere(text: str, terms: list[str]) -> dict[str, Any]:
@@ -332,7 +347,16 @@ def _anywhere(text: str, terms: list[str]) -> dict[str, Any]:
     ]
     return {
         "bool": {
-            "should": [{"query_string": {"query": _escape_slashes(text), "fields": _QUERY_FIELDS}}, *paths],
+            "should": [
+                {
+                    "query_string": {
+                        "query": _escape_slashes(text),
+                        "fields": _QUERY_FIELDS,
+                        "default_operator": "AND",
+                    }
+                },
+                *paths,
+            ],
             "minimum_should_match": 1,
         }
     }

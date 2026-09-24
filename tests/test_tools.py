@@ -428,11 +428,12 @@ async def test_search_filters_apptools_by_their_own_type(client: Client[Any], do
 
 
 async def test_search_ranks_keywords_by_where_they_match(client: Client[Any], dockstore: FakeDockstore) -> None:
-    _, body = await _search(client, dockstore, query=" gatk  haplotype-caller ")
+    _, body = await _search(client, dockstore, query=" gatk  OR haplotype-caller ")
     keywords = _keywords(body)
     query_string, *paths = keywords["bool"]["should"]
     assert keywords["bool"]["minimum_should_match"] == 1
-    assert query_string["query_string"]["query"] == "gatk  haplotype-caller"
+    assert query_string["query_string"]["query"] == "gatk  OR haplotype-caller"
+    assert query_string["query_string"]["default_operator"] == "AND"
     assert "topicAutomatic^4" in query_string["query_string"]["fields"]
     assert "operation.displayName^3" in query_string["query_string"]["fields"]
     # Each keyword can match any part of a path.
@@ -460,7 +461,7 @@ async def test_search_by_a_field_does_not_weigh_keyword_matches(client: Client[A
 
 
 async def test_search_looks_for_only_plain_keywords_in_paths(client: Client[Any], dockstore: FakeDockstore) -> None:
-    query = 'gatk "variant calling" (bwa OR bowtie2) haplo* author:jane somatic~ haplotype\\-caller'
+    query = "gatk OR haplo* OR author:jane OR somatic~ OR haplotype\\-caller"
     _, body = await _search(client, dockstore, query=query)
     keywords = _keywords(body)
     query_string, *paths = keywords["bool"]["should"]
@@ -479,6 +480,11 @@ async def test_search_looks_for_only_plain_keywords_in_paths(client: Client[Any]
         "(rna OR dna) AND quantification",
         "rna AND (-quantification)",
         '"rna" AND quantification',
+        'gatk "variant calling"',
+        "rna quantification*",
+        "rna OR dna quantification",
+        "rna AND dna quantification",
+        "(rna OR dna)",
     ],
 )
 async def test_search_skips_paths_when_matches_are_required(
@@ -487,12 +493,13 @@ async def test_search_skips_paths_when_matches_are_required(
     """A keyword found in a path would match an entry that the query requires or rules out otherwise."""
     _, body = await _search(client, dockstore, query=query)
     keywords = _keywords(body)
-    assert keywords["bool"]["should"] == [{"query_string": {"query": query, "fields": ANY}}]
+    assert keywords["bool"]["should"] == [{"query_string": {"query": query, "fields": ANY, "default_operator": "AND"}}]
 
 
-async def test_search_needs_every_keyword_joined_by_and(client: Client[Any], dockstore: FakeDockstore) -> None:
+@pytest.mark.parametrize("query", ["rna AND quantification", " rna  quantification "])
+async def test_search_needs_every_keyword(client: Client[Any], dockstore: FakeDockstore, query: str) -> None:
     """A keyword found in the path alone must not satisfy the others it is joined to."""
-    _, body = await _search(client, dockstore, query="rna AND quantification")
+    _, body = await _search(client, dockstore, query=query)
     clauses = _keywords(body)["bool"]["must"]
     assert len(clauses) == 2
     for clause, term in zip(clauses, ["rna", "quantification"], strict=True):
