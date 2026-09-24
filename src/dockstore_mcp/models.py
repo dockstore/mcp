@@ -97,9 +97,8 @@ class EntrySummary(BaseModel):
         default=None, description="Language the entry's descriptor is written in."
     )
     name: str = Field(description="Display name of the entry.")
-    path: str = Field(description="Full Dockstore path, for example 'github.com/org/repo/name'.")
+    trs_id: str = Field(description="GA4GH TRS identifier, for use against the TRS API.")
     topic: str | None = Field(default=None, description="One-line description of what the entry does.")
-    created_at: datetime | None = Field(default=None, description="When the entry was registered.")
     updated_at: datetime | None = Field(default=None, description="When the entry was last modified.")
 
 

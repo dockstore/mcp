@@ -357,13 +357,12 @@ async def test_search_summarizes_each_hit(client: Client[Any], dockstore: FakeDo
         "entry_type": "workflow",
         "descriptor_type": "gxformat2",
         "name": "COVID-19-ARTIC-ILLUMINA",
-        "path": "github.com/iwc-workflows/sars-cov-2-variant-calling/COVID-19-ARTIC-ILLUMINA",
+        "trs_id": "#workflow/github.com/iwc-workflows/sars-cov-2-variant-calling/COVID-19-ARTIC-ILLUMINA",
         "topic": "Variant calling from SARS-CoV-2 paired-end Illumina ARTIC data.",
-        "created_at": "2021-02-23T08:14:27.928000Z",
         "updated_at": "2026-05-13T15:33:42Z",
     }
     assert (tool["id"], tool["entry_type"], tool["descriptor_type"]) == ("188", "tool", "CWL")
-    assert (tool["name"], tool["path"]) == ("pcawg-dkfz-workflow", "quay.io/pancancer/pcawg-dkfz-workflow")
+    assert (tool["name"], tool["trs_id"]) == ("pcawg-dkfz-workflow", "quay.io/pancancer/pcawg-dkfz-workflow")
     assert tool["updated_at"] == "2022-03-31T21:37:31.404000Z"
 
 

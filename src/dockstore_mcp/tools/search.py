@@ -98,6 +98,7 @@ _PATH_BOOST = 14
 #: The fields of each hit that an :class:`EntrySummary` is built from.
 _SOURCE_FIELDS = [
     "entryTypeMetadata.type",
+    "entryTypeMetadata.trsPrefix",
     "descriptorType",
     "workflowName",
     "toolname",
@@ -105,8 +106,8 @@ _SOURCE_FIELDS = [
     "name",
     "full_workflow_path",
     "tool_path",
+    "trsId",
     "topicAutomatic",
-    "dbCreateDate",
     "last_modified_date",
     "lastUpdated",
     "dbUpdateDate",
@@ -400,7 +401,8 @@ def _to_summary(hit: Any) -> EntrySummary | None:
     if not isinstance(source, dict):
         return None
     metadata = source.get("entryTypeMetadata")
-    entry_type = _entry_type(metadata.get("type") if isinstance(metadata, dict) else None)
+    metadata = metadata if isinstance(metadata, dict) else {}
+    entry_type = _entry_type(metadata.get("type"))
     path = _first_of(source, "full_workflow_path", "tool_path")
     # A document's own id field is always 0; Dockstore files it under the entry's identifier.
     identifier = hit.get("_id")
@@ -412,9 +414,9 @@ def _to_summary(hit: Any) -> EntrySummary | None:
         entry_type=entry_type,
         descriptor_type=_descriptor_type(source.get("descriptorType")),
         name=_first_of(source, "workflowName", "toolname", "repository", "name") or path,
-        path=path,
+        # An entry indexed without its TRS identifier has one made from its path, behind its type's prefix.
+        trs_id=source.get("trsId") or f"{metadata.get('trsPrefix') or ''}{path}",
         topic=source.get("topicAutomatic"),
-        created_at=_timestamp(source.get("dbCreateDate")),
         updated_at=_timestamp(
             source.get("last_modified_date") or source.get("lastUpdated") or source.get("dbUpdateDate")
         ),

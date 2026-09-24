@@ -175,11 +175,12 @@ SEARCH_HITS: dict[str, Any] = {
                 "_id": "16247",
                 "_score": 12.5,
                 "_source": {
-                    "entryTypeMetadata": {"type": "WORKFLOW", "sitePath": "workflows"},
+                    "entryTypeMetadata": {"type": "WORKFLOW", "trsPrefix": "#workflow/"},
                     "descriptorType": "gxformat2",
                     "workflowName": "COVID-19-ARTIC-ILLUMINA",
                     "repository": "sars-cov-2-variant-calling",
                     "full_workflow_path": WORKFLOW["full_workflow_path"],
+                    "trsId": WORKFLOW["trsId"],
                     "topicAutomatic": WORKFLOW["topic"],
                     "dbCreateDate": WORKFLOW["dbCreateDate"],
                     "last_modified_date": WORKFLOW["last_modified_date"],
@@ -190,7 +191,7 @@ SEARCH_HITS: dict[str, Any] = {
                 "_id": "188",
                 "_score": 3.0,
                 "_source": {
-                    "entryTypeMetadata": {"type": "TOOL", "sitePath": "containers"},
+                    "entryTypeMetadata": {"type": "TOOL", "trsPrefix": ""},
                     "descriptorType": ["CWL", "WDL"],
                     "name": "pcawg-dkfz-workflow",
                     "toolname": None,
