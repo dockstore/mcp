@@ -19,8 +19,6 @@ real Dockstore API: both endpoints are unauthenticated, parameterless GETs again
 the TRS V2 API, with small, fixed response shapes.
 """
 
-import logging
-
 import httpx2 as httpx
 from fastmcp import FastMCP
 
@@ -29,8 +27,6 @@ from dockstore_mcp.config import Settings
 from dockstore_mcp.models import ToolClass, TrsInfo
 
 __all__ = ["register"]
-
-logger = logging.getLogger(__name__)
 
 #: How long to wait for the Dockstore TRS API to respond.
 REQUEST_TIMEOUT = 30.0
