@@ -39,6 +39,7 @@ from dockstore_mcp.models import (
     ToolPage,
     ToolSummary,
     ToolVersion,
+    ToolVersionSummary,
     TrsDescriptorType,
     TrsInfo,
 )
@@ -286,18 +287,36 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return Tool.model_validate(await get_json(f"/tools/{_segment(tool_id)}"))
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def list_tool_versions(tool_id: ToolId) -> list[ToolVersion]:
+    async def list_tool_versions(
+        tool_id: ToolId,
+        summary: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Return each version as just its name, meta_version, and is_production instead of in full. "
+                    "Much smaller: use it to scan or pick from many versions, then get_tool_version for details."
+                )
+            ),
+        ] = False,
+    ) -> list[ToolVersion] | list[ToolVersionSummary]:
         """List every version of one tool or workflow.
 
         Each version's ``name`` is what the other version tools take as
         ``version_id``, and its ``descriptor_type`` lists the languages its files can
         be fetched in.
 
+        A workflow in a monorepo can have a version for every branch and tag of its
+        repository, over a thousand of them, so ask for a ``summary`` unless you need
+        each version's images or authors.
+
         Returns:
-            Every version of the tool.
+            Every version of the tool, in full or (if ``summary``) summarized.
         """
         data = await get_json(f"/tools/{_segment(tool_id)}/versions")
-        return [ToolVersion.model_validate(item) for item in data]
+        versions = [ToolVersion.model_validate(item) for item in data]
+        if summary:
+            return [ToolVersionSummary.model_validate(version, from_attributes=True) for version in versions]
+        return versions
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def get_tool_version(tool_id: ToolId, version_id: VersionId) -> ToolVersion:

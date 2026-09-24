@@ -346,6 +346,15 @@ async def test_list_tool_versions(client: Client[Any]) -> None:
     assert [version.name for version in result.data] == [VERSION_ID]
 
 
+async def test_list_tool_versions_summarizes(client: Client[Any]) -> None:
+    async with client:
+        result = await client.call_tool("list_tool_versions", {"tool_id": TOOL_ID, "summary": True})
+    assert result.structured_content is not None
+    [version] = result.structured_content["result"]
+    assert set(version) == {"name", "meta_version", "is_production"}
+    assert version["name"] == VERSION_ID
+
+
 async def test_get_tool_version(client: Client[Any], requests_made: list[httpx.Request]) -> None:
     async with client:
         result = await client.call_tool("get_tool_version", {"tool_id": TOOL_ID, "version_id": VERSION_ID})

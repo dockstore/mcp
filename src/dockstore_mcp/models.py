@@ -48,6 +48,7 @@ __all__ = [
     "ToolPage",
     "ToolSummary",
     "ToolVersion",
+    "ToolVersionSummary",
     "TrsDescriptorType",
     "TrsInfo",
     "Version",
@@ -276,6 +277,14 @@ class ToolVersion(BaseModel):
     verified_source: list[str] | None = Field(default=None, description="Who or what verified this version.")
     signed: bool | None = Field(default=None, description="Whether this version is signed.")
     included_apps: list[str] | None = Field(default=None, description="Apps bundled with this version.")
+
+
+class ToolVersionSummary(BaseModel):
+    """The few fields that pick out a TRS tool version in a list, without its images or authors."""
+
+    name: str | None = Field(default=None, description="Version name; pass this as version_id to the version tools.")
+    meta_version: str | None = Field(default=None, description="Revision of this version's metadata.")
+    is_production: bool | None = Field(default=None, description="Whether the version is marked production-ready.")
 
 
 class Tool(BaseModel):
