@@ -30,6 +30,7 @@ import httpx2 as httpx
 from fastmcp import FastMCP
 from pydantic import Field
 
+from dockstore_mcp import __version__
 from dockstore_mcp.casing import normalize_keys
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import (
@@ -180,21 +181,36 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return f"/tools/{_segment(tool_id)}/versions/{_segment(version_id)}"
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def get_trs_info() -> TrsInfo:
-        """Describe this Dockstore instance's GA4GH Tool Registry Service (TRS) API.
+    async def get_trs_info(
+        local_only: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Report only which Dockstore instance this server is attached to and the server's version, "
+                    "without contacting Dockstore: a quick check that the server is up and configured."
+                )
+            ),
+        ] = False,
+    ) -> TrsInfo:
+        """Describe the Dockstore instance this server is attached to, and its GA4GH Tool Registry Service (TRS) API.
 
         Use this to identify which Dockstore instance a server is talking to, which
         version of the TRS API it implements, and who operates it, and to see which
         tool classes (for example 'Workflow' or 'CommandLineTool') it sorts entries
-        into, e.g. before filtering search_tools by one. It takes no arguments and
-        always describes the ``dockstore_url`` this server is configured with.
+        into, e.g. before filtering search_tools by one. It always describes the
+        ``dockstore_url`` this server is configured with. Pass ``local_only`` to
+        confirm the server is reachable and configured without calling Dockstore.
 
         Returns:
-            Service metadata: identifiers, the TRS API version implemented, the
-            organization operating the service, and every tool class it recognizes.
+            The Dockstore URL and server version, plus (unless ``local_only``) the
+            service's identifiers, the TRS API version implemented, the organization
+            operating it, and every tool class it recognizes.
         """
+        local = {"dockstore_url": settings.dockstore_url, "server_version": __version__}
+        if local_only:
+            return TrsInfo.model_validate(local)
         service_info, tool_classes = await asyncio.gather(get("/service-info"), get("/toolClasses"))
-        info = TrsInfo.model_validate(normalize_keys(service_info.json()))
+        info = TrsInfo.model_validate({**normalize_keys(service_info.json()), **local})
         info.tool_classes = [ToolClass.model_validate(item) for item in normalize_keys(tool_classes.json())]
         return info
 

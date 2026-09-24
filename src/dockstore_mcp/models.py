@@ -201,13 +201,23 @@ class ServiceOrganization(BaseModel):
 
 
 class TrsInfo(BaseModel):
-    """GA4GH TRS service-info, plus the tool classes the service sorts entries into."""
+    """The Dockstore instance this server talks to and, unless only local details were asked for, its TRS service-info.
 
-    id: str = Field(description="Unique identifier of this service, in reverse domain name notation.")
-    name: str = Field(description="Human-readable name of this service.")
-    type: ServiceType = Field(description="Which GA4GH API this service implements, and at what version.")
-    organization: ServiceOrganization = Field(description="Organization operating this service.")
-    version: str = Field(description="Version of the service software.")
+    Only ``dockstore_url`` and ``server_version`` are filled in when ``get_trs_info`` is
+    asked not to contact Dockstore.
+    """
+
+    dockstore_url: str = Field(description="The Dockstore instance this server is configured to talk to.")
+    server_version: str = Field(description="Version of the dockstore-mcp package that answered.")
+    id: str | None = Field(
+        default=None, description="Unique identifier of this service, in reverse domain name notation."
+    )
+    name: str | None = Field(default=None, description="Human-readable name of this service.")
+    type: ServiceType | None = Field(
+        default=None, description="Which GA4GH API this service implements, and at what version."
+    )
+    organization: ServiceOrganization | None = Field(default=None, description="Organization operating this service.")
+    version: str | None = Field(default=None, description="Version of the service software.")
     description: str | None = Field(default=None, description="Human-readable description of the service.")
     contact_url: str | None = Field(default=None, description="Contact URL or mailto link for the service.")
     documentation_url: str | None = Field(default=None, description="URL of the service's documentation.")

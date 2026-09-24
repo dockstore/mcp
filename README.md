@@ -13,7 +13,7 @@ MCP, so it is deployed alongside the Dockstore webservice rather than inside it.
 
 It is built on [FastMCP](https://gofastmcp.com) 4 and ships as a container image.
 
-> **Status: scaffold.** `hello` and the GA4GH TRS tools (`get_trs_info` through
+> **Status: scaffold.** The GA4GH TRS tools (`get_trs_info` through
 > `get_tool_descriptor_by_path`) have working bodies; the other four Dockstore tools are
 > declared — names, arguments, and response shapes — but each one raises
 > `NotImplementedError` until it is wired up to the Dockstore API.
@@ -129,8 +129,7 @@ the full list.
 
 | Tool                          | Description                                                                          |
 | ----------------------------- | ------------------------------------------------------------------------------------ |
-| `hello`                       | Greets the caller and reports the Dockstore instance and server version. No I/O.     |
-| `get_trs_info`                | Describes this instance's TRS API: identifiers, version, operator, and tool classes. |
+| `get_trs_info`                | Reports instance and version; unless `local_only`, also TRS info and tool classes.   |
 | `list_tools`                  | Lists one page of every tool and workflow the TRS API serves, with the total count.  |
 | `search_tools`                | Finds TRS tools by name, organization, author, class, descriptor language, etc.      |
 | `get_tool`                    | Retrieves one TRS tool by id, including all of its versions.                         |
@@ -166,7 +165,6 @@ src/dockstore_mcp/
 └── tools/
     ├── __init__.py  registers every tool group
     ├── entries.py   get_entry, get_version, get_file
-    ├── hello.py     the hello tool
     ├── search.py    search_entries
     └── trs.py       get_trs_info and the other GA4GH TRS tools
 tests/               pytest suite, using FastMCP's in-memory client

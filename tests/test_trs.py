@@ -197,6 +197,17 @@ async def test_get_trs_info(client: Client[Any]) -> None:
     assert result.data.contact_url == "mailto:support@dockstore.org"
     assert [tool_class.id for tool_class in result.data.tool_classes] == ["CommandLineTool", "Workflow"]
     assert result.data.tool_classes[1].name == "Workflow"
+    assert result.data.dockstore_url == "https://staging.dockstore.org"
+    assert result.data.server_version == __version__
+
+
+async def test_get_trs_info_local_only_skips_dockstore(client: Client[Any], requests_made: list[httpx.Request]) -> None:
+    async with client:
+        result = await client.call_tool("get_trs_info", {"local_only": True})
+    assert result.data.dockstore_url == "https://staging.dockstore.org"
+    assert result.data.server_version == __version__
+    assert (result.data.id, result.data.tool_classes) == (None, [])
+    assert requests_made == []
 
 
 @pytest.mark.parametrize("path", ["/service-info", "/toolClasses"])

@@ -11,7 +11,7 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
-"""Tests for server construction and the hello tool."""
+"""Tests for server construction."""
 
 from typing import Any
 
@@ -33,26 +33,11 @@ async def test_every_tool_is_advertised(client: Client[Any]) -> None:
         "get_tool_version",
         "get_trs_info",
         "get_version",
-        "hello",
         "list_tool_versions",
         "list_tools",
         "search_entries",
         "search_tools",
     ]
-
-
-async def test_hello_greets_by_name(client: Client[Any]) -> None:
-    async with client:
-        result = await client.call_tool("hello", {"name": "Dockstore"})
-    assert result.data.greeting == "Hello, Dockstore!"
-    assert result.data.dockstore_url == "https://staging.dockstore.org"
-    assert result.data.server_version == __version__
-
-
-async def test_hello_has_a_default_name(client: Client[Any]) -> None:
-    async with client:
-        result = await client.call_tool("hello", {})
-    assert result.data.greeting == "Hello, world!"
 
 
 def test_health_endpoint(server: FastMCP) -> None:

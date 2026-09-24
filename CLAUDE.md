@@ -9,7 +9,7 @@ An MCP (Model Context Protocol) server, built on FastMCP 4, that exposes Docksto
 assistants. It is a standalone process deployed alongside the Dockstore webservice,
 talking to Dockstore's GA4GH Tool Registry Service (TRS) API and its own proprietary API.
 
-**Status: scaffold.** Only the `hello` tool has a working body. The four Dockstore
+**Status: scaffold.** The GA4GH TRS tools in `trs.py` have working bodies. The four Dockstore
 tools (`search_entries`, `get_entry`, `get_version`, `get_file`) are fully declared
 (names, arguments, response models, docstrings) but each raises `NotImplementedError`
 until wired up to the real Dockstore API.
@@ -31,7 +31,7 @@ Run a single test with pytest directly (no Makefile target for this):
 
 ```bash
 .venv/bin/pytest tests/test_tools.py::test_search_takes_every_facet
-.venv/bin/pytest -k "hello"
+.venv/bin/pytest -k "trs_info"
 ```
 
 Tests use FastMCP's in-memory `Client`/`FastMCP` pairing (see `tests/conftest.py`), so
@@ -93,7 +93,8 @@ back from the installed package's metadata at runtime (`importlib.metadata.versi
 - `src/dockstore_mcp/tools/` — one module per cohesive tool group, each exposing
   `register(mcp: FastMCP, settings: Settings) -> None`. `tools/__init__.py`'s
   `register_all` calls each in turn; new tool modules must be added there.
-  - `hello.py` — smoke-test tool, implemented.
+  - `trs.py` — the GA4GH TRS tools, implemented. `get_trs_info(local_only=True)` doubles as a
+    smoke test that never contacts Dockstore.
   - `search.py` — `search_entries`, the Dockstore Search page equivalent.
   - `entries.py` — `get_entry` → `get_version` → `get_file`, a lookup chain: an
     entry's `version_ids` feed `get_version`, whose `file_paths` feed `get_file`.
