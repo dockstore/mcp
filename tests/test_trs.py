@@ -103,9 +103,9 @@ FILES_RESPONSE = [
     },
 ]
 
-TESTS_RESPONSE = [{"checksum": [], "content": '{"input": 1}', "url": "https://example.org/test.json"}]
+TEST_FILE_RESPONSE = {"checksum": [], "content": '{"input": 1}', "url": "https://example.org/test.json"}
 
-CONTAINERFILE_RESPONSE = [{"checksum": [], "content": "FROM ubuntu:24.04\n", "url": "https://example.org/Dockerfile"}]
+CONTAINERFILE_RESPONSE = {"checksum": [], "content": "FROM ubuntu:24.04\n", "url": "https://example.org/Dockerfile"}
 
 _VERSION_PATH = f"/tools/{TOOL_ID}/versions/{VERSION_ID}"
 
@@ -119,8 +119,8 @@ RESPONSES: dict[str, Any] = {
     f"{_VERSION_PATH}/CWL/descriptor": DESCRIPTOR_RESPONSE,
     f"{_VERSION_PATH}/CWL/descriptor/{SECONDARY_PATH}": DESCRIPTOR_RESPONSE,
     f"{_VERSION_PATH}/CWL/files": FILES_RESPONSE,
-    f"{_VERSION_PATH}/CWL/tests": TESTS_RESPONSE,
-    f"{_VERSION_PATH}/containerfile": CONTAINERFILE_RESPONSE,
+    f"{_VERSION_PATH}/CWL/descriptor/test.json": TEST_FILE_RESPONSE,
+    f"{_VERSION_PATH}/CWL/descriptor/Dockerfile": CONTAINERFILE_RESPONSE,
     f"{_VERSION_PATH}/JUPYTER/files": [{"checksum": None, "file_type": "PRIMARY_DESCRIPTOR", "path": "main.ipynb"}],
 }
 
@@ -363,13 +363,16 @@ async def test_get_tool_version(client: Client[Any], requests_made: list[httpx.R
     assert requests_made[0].url.raw_path.endswith(b"/versions/feature%2Fbranch")
 
 
-async def test_get_tool_descriptor(client: Client[Any]) -> None:
+async def test_get_tool_descriptor_by_path_defaults_to_the_primary_descriptor(
+    client: Client[Any], requests_made: list[httpx.Request]
+) -> None:
     async with client:
         result = await client.call_tool(
-            "get_tool_descriptor", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "descriptor_type": "CWL"}
+            "get_tool_descriptor_by_path", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "descriptor_type": "CWL"}
         )
     assert result.data.content.startswith("cwlVersion: v1.0")
     assert result.data.checksum[0].checksum == "def456"
+    assert requests_made[0].url.raw_path.endswith(b"/CWL/descriptor")
 
 
 async def test_get_tool_descriptor_by_path_encodes_the_path(
@@ -396,18 +399,18 @@ async def test_get_tool_files(client: Client[Any]) -> None:
     assert result.data[1].checksum.checksum == "789abc"
 
 
-async def test_get_tool_tests(client: Client[Any]) -> None:
+@pytest.mark.parametrize(
+    ("relative_path", "content"), [("test.json", '{"input": 1}'), ("Dockerfile", "FROM ubuntu:24.04\n")]
+)
+async def test_get_tool_descriptor_by_path_fetches_tests_and_containerfiles(
+    client: Client[Any], relative_path: str, content: str
+) -> None:
     async with client:
         result = await client.call_tool(
-            "get_tool_tests", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "descriptor_type": "CWL"}
+            "get_tool_descriptor_by_path",
+            {"tool_id": TOOL_ID, "version_id": VERSION_ID, "descriptor_type": "CWL", "relative_path": relative_path},
         )
-    assert [test.content for test in result.data] == ['{"input": 1}']
-
-
-async def test_get_tool_containerfile(client: Client[Any]) -> None:
-    async with client:
-        result = await client.call_tool("get_tool_containerfile", {"tool_id": TOOL_ID, "version_id": VERSION_ID})
-    assert result.data[0].content == "FROM ubuntu:24.04\n"
+    assert result.data.content == content
 
 
 async def test_get_tool_files_for_a_notebook(client: Client[Any]) -> None:
@@ -422,7 +425,8 @@ async def test_get_tool_rejects_unknown_descriptor_types(client: Client[Any]) ->
     async with client:
         with pytest.raises(ToolError):
             await client.call_tool(
-                "get_tool_descriptor", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "descriptor_type": "PLAIN_CWL"}
+                "get_tool_descriptor_by_path",
+                {"tool_id": TOOL_ID, "version_id": VERSION_ID, "descriptor_type": "PLAIN_CWL"},
             )
 
 

@@ -14,7 +14,7 @@ MCP, so it is deployed alongside the Dockstore webservice rather than inside it.
 It is built on [FastMCP](https://gofastmcp.com) 4 and ships as a container image.
 
 > **Status: scaffold.** `hello` and the GA4GH TRS tools (`get_trs_info` through
-> `get_tool_containerfile`) have working bodies; the other four Dockstore tools are
+> `get_tool_descriptor_by_path`) have working bodies; the other four Dockstore tools are
 > declared — names, arguments, and response shapes — but each one raises
 > `NotImplementedError` until it is wired up to the Dockstore API.
 
@@ -136,17 +136,14 @@ the full list.
 | `get_tool`                    | Retrieves one TRS tool by id, including all of its versions.                         |
 | `list_tool_versions`          | Lists every version of one TRS tool.                                                 |
 | `get_tool_version`            | Retrieves one version of a TRS tool: authors, images, descriptor languages.          |
-| `get_tool_descriptor`         | Fetches the primary descriptor (CWL, WDL, etc., or a notebook) of a version.         |
-| `get_tool_descriptor_by_path` | Fetches one of a version's files by its relative path.                               |
-| `get_tool_files`              | Lists every file of a version, without content.                                      |
-| `get_tool_tests`              | Fetches a version's test parameter files.                                            |
-| `get_tool_containerfile`      | Fetches the containerfile (e.g. Dockerfile) that builds a version's image.           |
+| `get_tool_files`              | Lists every file of a version (descriptors, tests, containerfile), without content.  |
+| `get_tool_descriptor_by_path` | Fetches a version's primary descriptor, or any file get_tool_files lists, by path.   |
 | `search_entries`              | Searches entries by keyword and facet, the equivalent of the site's Search page.     |
 | `get_entry`                   | Retrieves the requested fields of one entry.                                         |
 | `get_version`                 | Retrieves the requested fields of one version of an entry.                           |
 | `get_file`                    | Retrieves the requested fields of one file belonging to a version.                   |
 
-The TRS tools, from `get_trs_info` to `get_tool_containerfile`, call Dockstore's GA4GH
+The TRS tools, from `get_trs_info` to `get_tool_descriptor_by_path`, call Dockstore's GA4GH
 TRS V2 API directly. They form a chain: `list_tools` and `search_tools` yield tool ids, a
 tool yields version names, and a version's `get_tool_files` yields the paths that
 `get_tool_descriptor_by_path` takes. Pass `summary` to `list_tools` or `search_tools` to get

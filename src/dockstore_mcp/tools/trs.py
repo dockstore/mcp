@@ -316,36 +316,34 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return ToolVersion.model_validate(await get_json(version_path(tool_id, version_id)))
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def get_tool_descriptor(
-        tool_id: ToolId, version_id: VersionId, descriptor_type: DescriptorType
-    ) -> FileWrapper:
-        """Fetch the primary descriptor of one version: the main CWL, WDL, Nextflow, etc. file, or notebook.
-
-        Reach for get_tool_files to see what other files the version has, and
-        get_tool_descriptor_by_path to fetch one of them.
-
-        Returns:
-            The descriptor's content, checksum, and source URL.
-        """
-        path = f"{version_path(tool_id, version_id)}/{descriptor_type}/descriptor"
-        return FileWrapper.model_validate(await get_json(path))
-
-    @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def get_tool_descriptor_by_path(
         tool_id: ToolId,
         version_id: VersionId,
         descriptor_type: DescriptorType,
         relative_path: Annotated[
-            str,
-            Field(description="Path of the file relative to the primary descriptor, as get_tool_files gives."),
-        ],
+            str | None,
+            Field(
+                description=(
+                    "Path of the file relative to the primary descriptor, as get_tool_files gives. "
+                    "Omit it to fetch the primary descriptor itself."
+                )
+            ),
+        ] = None,
     ) -> FileWrapper:
-        """Fetch one file of a version by path: an imported descriptor, a config file, and so on.
+        """Fetch one file of a version: its primary descriptor, or any other file by path.
+
+        Omit ``relative_path`` for the primary descriptor: the main CWL, WDL, Nextflow,
+        etc. file, or notebook. That needs no get_tool_files call first, so the two can
+        run together. Otherwise pass any path get_tool_files lists, including imported
+        descriptors, test parameter files, and the containerfile (e.g. Dockerfile),
+        which any of the version's descriptor types can fetch.
 
         Returns:
             The file's content, checksum, and source URL.
         """
-        path = f"{version_path(tool_id, version_id)}/{descriptor_type}/descriptor/{_segment(relative_path)}"
+        path = f"{version_path(tool_id, version_id)}/{descriptor_type}/descriptor"
+        if relative_path is not None:
+            path += f"/{_segment(relative_path)}"
         return FileWrapper.model_validate(await get_json(path))
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
@@ -353,36 +351,10 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         """List every file of one version, without their content.
 
         Use this to find a version's secondary descriptors, test parameter files, and
-        containerfile before fetching one.
+        containerfile, then fetch each with get_tool_descriptor_by_path.
 
         Returns:
             Each file's path and type (primary or secondary descriptor, test file, etc.).
         """
         data = await get_json(f"{version_path(tool_id, version_id)}/{descriptor_type}/files")
         return [ToolFile.model_validate(item) for item in data]
-
-    @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def get_tool_tests(
-        tool_id: ToolId, version_id: VersionId, descriptor_type: DescriptorType
-    ) -> list[FileWrapper]:
-        """Fetch the test parameter files of one version: example inputs for running it.
-
-        Returns:
-            The content of every test parameter file; empty if the version has none.
-        """
-        data = await get_json(f"{version_path(tool_id, version_id)}/{descriptor_type}/tests")
-        return [FileWrapper.model_validate(item) for item in data]
-
-    @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def get_tool_containerfile(tool_id: ToolId, version_id: VersionId) -> list[FileWrapper]:
-        """Fetch the containerfile (e.g. Dockerfile) that builds one version's image.
-
-        Only some tools have one, typically those registered from a Docker image
-        rather than as a workflow; a version whose ``containerfile`` is false has
-        none, and the call fails.
-
-        Returns:
-            The content of each containerfile.
-        """
-        data = await get_json(f"{version_path(tool_id, version_id)}/containerfile")
-        return [FileWrapper.model_validate(item) for item in data]
