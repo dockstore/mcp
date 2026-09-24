@@ -274,10 +274,24 @@ async def test_list_tools_summarizes(client: Client[Any], _mock_trs_api: dict[st
     assert summary["tool_class"] == "Workflow"
     assert summary["descriptor_types"] == ["CWL", "WDL"]
     assert summary["version_names"] == [VERSION_ID, "1.0"]
+    assert (summary["version_count"], summary["versions_truncated"]) == (2, False)
     assert summary["description"].startswith("# Title word word")
     assert len(summary["description"]) == 200
     assert summary["description"].endswith("…")
     assert "versions" not in summary
+
+
+async def test_summary_caps_version_names(client: Client[Any], _mock_trs_api: dict[str, httpx.Response]) -> None:
+    versions = [{**VERSION_RESPONSE, "name": f"branch-{i}", "is_production": i == 25} for i in range(30)]
+    tool = {**TOOL_RESPONSE, "versions": versions}
+    _mock_trs_api["/tools"] = httpx.Response(200, json=[tool])
+
+    async with client:
+        result = await client.call_tool("list_tools", {"summary": True})
+    assert result.structured_content is not None
+    summary = result.structured_content["tools"][0]
+    assert summary["version_names"] == ["branch-25"] + [f"branch-{i}" for i in range(9)]
+    assert (summary["version_count"], summary["versions_truncated"]) == (30, True)
 
 
 async def test_search_tools_summarizes(client: Client[Any]) -> None:

@@ -305,7 +305,15 @@ class ToolSummary(BaseModel):
         default_factory=list, description="Every descriptor language any of its versions is available in."
     )
     version_names: list[str] = Field(
-        default_factory=list, description="Name of each version; pass one as version_id to the version tools."
+        default_factory=list,
+        description=(
+            "Names of up to 10 versions, production-ready ones first; pass one as version_id to the version tools. "
+            "Use list_tool_versions for the rest."
+        ),
+    )
+    version_count: int = Field(default=0, description="How many versions the tool has in all.")
+    versions_truncated: bool = Field(
+        default=False, description="Whether version_names leaves some versions out; see version_count."
     )
     description: str | None = Field(default=None, description="The start of the tool's description, shortened.")
 

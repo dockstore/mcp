@@ -56,6 +56,10 @@ DEFAULT_PAGE_SIZE = 20
 #: How much of a tool's description a summary keeps.
 SUMMARY_DESCRIPTION_LENGTH = 200
 
+#: How many version names a summary keeps. Monorepo workflows can have a version
+#: for every branch and tag of their repository, over a thousand of them.
+SUMMARY_VERSION_LIMIT = 10
+
 ToolId = Annotated[
     str,
     Field(description="TRS tool id, e.g. '#workflow/github.com/org/repo/name', as list_tools or search_tools give."),
@@ -67,8 +71,9 @@ Summary = Annotated[
     bool,
     Field(
         description=(
-            "Return each tool as a short summary (id, name, languages, version names, the start of its "
-            "description) instead of in full. Much smaller: use it to scan or group many tools."
+            "Return each tool as a short summary (id, name, languages, a version count and up to "
+            f"{SUMMARY_VERSION_LIMIT} version names, the start of its description) instead of in full. "
+            "Much smaller: use it to scan or group many tools."
         )
     ),
 ]
@@ -88,8 +93,12 @@ def _segment(value: str) -> str:
 
 
 def _summarize(tool: Tool) -> ToolSummary:
-    """Reduce ``tool`` to a :class:`ToolSummary`, shortening its description."""
+    """Reduce ``tool`` to a :class:`ToolSummary`, shortening its description and version list."""
     versions = tool.versions or []
+    # Production-ready versions first; sorted() is stable, so the rest keep Dockstore's order.
+    version_names = [
+        version.name for version in sorted(versions, key=lambda version: not version.is_production) if version.name
+    ]
     descriptor_types = sorted({language for version in versions for language in version.descriptor_type or []})
     description = " ".join((tool.description or "").split()) or None
     if description and len(description) > SUMMARY_DESCRIPTION_LENGTH:
@@ -100,7 +109,9 @@ def _summarize(tool: Tool) -> ToolSummary:
         organization=tool.organization,
         tool_class=tool.toolclass.name if tool.toolclass else None,
         descriptor_types=descriptor_types,
-        version_names=[version.name for version in versions if version.name],
+        version_names=version_names[:SUMMARY_VERSION_LIMIT],
+        version_count=len(version_names),
+        versions_truncated=len(version_names) > SUMMARY_VERSION_LIMIT,
         description=description,
     )
 
