@@ -41,6 +41,12 @@ def test_derived_api_urls() -> None:
     assert settings.api_url == "https://qa.dockstore.org/api"
 
 
+def test_derived_api_urls_omit_prefix_on_localhost() -> None:
+    settings = Settings(dockstore_url="http://localhost:8080/")
+    assert settings.trs_url == "http://localhost:8080/ga4gh/trs/v2"
+    assert settings.api_url == "http://localhost:8080"
+
+
 @pytest.mark.parametrize(("field", "value"), [("port", 0), ("path", "mcp"), ("transport", "carrier-pigeon")])
 def test_rejects_bad_values(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
