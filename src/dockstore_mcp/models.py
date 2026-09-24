@@ -201,7 +201,7 @@ class ServiceOrganization(BaseModel):
 
 
 class TrsInfo(BaseModel):
-    """GA4GH TRS service-info: metadata describing a Dockstore instance's TRS API."""
+    """GA4GH TRS service-info, plus the tool classes the service sorts entries into."""
 
     id: str = Field(description="Unique identifier of this service, in reverse domain name notation.")
     name: str = Field(description="Human-readable name of this service.")
@@ -216,6 +216,10 @@ class TrsInfo(BaseModel):
     )
     created_at: datetime | None = Field(default=None, description="When the service was first deployed.")
     updated_at: datetime | None = Field(default=None, description="When the service was last updated.")
+    tool_classes: list["ToolClass"] = Field(
+        default_factory=list,
+        description="Every tool class (e.g. 'Workflow') the service sorts entries into; search_tools filters by these.",
+    )
 
 
 class ToolClass(BaseModel):

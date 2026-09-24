@@ -195,17 +195,15 @@ async def test_get_trs_info(client: Client[Any]) -> None:
     assert result.data.type.group == "org.ga4gh"
     assert result.data.organization.name == "Dockstore"
     assert result.data.contact_url == "mailto:support@dockstore.org"
+    assert [tool_class.id for tool_class in result.data.tool_classes] == ["CommandLineTool", "Workflow"]
+    assert result.data.tool_classes[1].name == "Workflow"
 
 
-async def test_list_tool_classes(client: Client[Any]) -> None:
-    async with client:
-        result = await client.call_tool("list_tool_classes", {})
-    assert [tool_class.id for tool_class in result.data] == ["CommandLineTool", "Workflow"]
-    assert result.data[1].name == "Workflow"
-
-
-async def test_get_trs_info_surfaces_http_errors(client: Client[Any], _mock_trs_api: dict[str, httpx.Response]) -> None:
-    _mock_trs_api["/service-info"] = httpx.Response(500)
+@pytest.mark.parametrize("path", ["/service-info", "/toolClasses"])
+async def test_get_trs_info_surfaces_http_errors(
+    client: Client[Any], _mock_trs_api: dict[str, httpx.Response], path: str
+) -> None:
+    _mock_trs_api[path] = httpx.Response(500)
 
     async with client:
         with pytest.raises(ToolError):

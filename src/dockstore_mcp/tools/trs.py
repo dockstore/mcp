@@ -22,6 +22,7 @@ The lookups form a chain: ``list_tools``/``search_tools`` yield tool ids,
 ``get_tool_files`` listing yields the paths ``get_tool_descriptor_by_path`` takes.
 """
 
+import asyncio
 from typing import Annotated, Any
 from urllib.parse import quote
 
@@ -183,32 +184,19 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         """Describe this Dockstore instance's GA4GH Tool Registry Service (TRS) API.
 
         Use this to identify which Dockstore instance a server is talking to, which
-        version of the TRS API it implements, and who operates it. It takes no
-        arguments and always describes the ``dockstore_url`` this server is
-        configured with.
+        version of the TRS API it implements, and who operates it, and to see which
+        tool classes (for example 'Workflow' or 'CommandLineTool') it sorts entries
+        into, e.g. before filtering search_tools by one. It takes no arguments and
+        always describes the ``dockstore_url`` this server is configured with.
 
         Returns:
-            Service metadata: identifiers, the TRS API version implemented, and the
-            organization operating the service.
+            Service metadata: identifiers, the TRS API version implemented, the
+            organization operating the service, and every tool class it recognizes.
         """
-        response = await client.get(f"{settings.trs_url}/service-info")
-        response.raise_for_status()
-        return TrsInfo.model_validate(normalize_keys(response.json()))
-
-    @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def list_tool_classes() -> list[ToolClass]:
-        """List the tool classes this Dockstore instance's TRS API sorts entries into.
-
-        A tool class (for example 'Workflow' or 'CommandLineTool') is the category
-        Dockstore assigns an entry under the GA4GH TRS API. Reach for this to see
-        which classes exist, for example before filtering a TRS-level lookup by one.
-
-        Returns:
-            Every tool class the service recognizes.
-        """
-        response = await client.get(f"{settings.trs_url}/toolClasses")
-        response.raise_for_status()
-        return [ToolClass.model_validate(item) for item in normalize_keys(response.json())]
+        service_info, tool_classes = await asyncio.gather(get("/service-info"), get("/toolClasses"))
+        info = TrsInfo.model_validate(normalize_keys(service_info.json()))
+        info.tool_classes = [ToolClass.model_validate(item) for item in normalize_keys(tool_classes.json())]
+        return info
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def list_tools(limit: Limit = DEFAULT_PAGE_SIZE, offset: Offset = 0, summary: Summary = False) -> ToolPage:
@@ -240,7 +228,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         ] = None,
         alias: Annotated[str | None, Field(description="Match against one of the tool's aliases.")] = None,
         tool_class: Annotated[
-            str | None, Field(description="Only tools of this class, e.g. 'Workflow'; see list_tool_classes.")
+            str | None, Field(description="Only tools of this class, e.g. 'Workflow'; see get_trs_info.")
         ] = None,
         descriptor_type: Annotated[
             TrsDescriptorType | None, Field(description="Only tools available in this descriptor language.")

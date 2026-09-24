@@ -130,8 +130,7 @@ the full list.
 | Tool                          | Description                                                                          |
 | ----------------------------- | ------------------------------------------------------------------------------------ |
 | `hello`                       | Greets the caller and reports the Dockstore instance and server version. No I/O.     |
-| `get_trs_info`                | Describes this instance's GA4GH TRS API: identifiers, version, and operator.         |
-| `list_tool_classes`           | Lists the tool classes (e.g. `Workflow`) this instance's TRS API sorts entries into. |
+| `get_trs_info`                | Describes this instance's TRS API: identifiers, version, operator, and tool classes. |
 | `list_tools`                  | Lists one page of every tool and workflow the TRS API serves, with the total count.  |
 | `search_tools`                | Finds TRS tools by name, organization, author, class, descriptor language, etc.      |
 | `get_tool`                    | Retrieves one TRS tool by id, including all of its versions.                         |
@@ -172,7 +171,7 @@ src/dockstore_mcp/
     ├── entries.py   get_entry, get_version, get_file
     ├── hello.py     the hello tool
     ├── search.py    search_entries
-    └── trs.py       get_trs_info, list_tool_classes, and the other GA4GH TRS tools
+    └── trs.py       get_trs_info and the other GA4GH TRS tools
 tests/               pytest suite, using FastMCP's in-memory client
 Dockerfile           two-stage build of the deployable image
 ```
