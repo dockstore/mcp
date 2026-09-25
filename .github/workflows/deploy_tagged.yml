@@ -1,14 +1,24 @@
-name: Tagged release deploy
+name: Tagged release and develop deploy
 
 on:
   push:
+    branches:
+      - develop
     tags:
       - '**'
   workflow_dispatch:
 
+# Only the latest push to a ref should publish its image, so an older develop build can't overwrite a newer one
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   build:
+    needs: ci
     runs-on: ubuntu-24.04
 
     permissions:
@@ -38,13 +48,27 @@ jobs:
           username: ${{ secrets.QUAY_USER }}
           password: ${{ secrets.QUAY_TOKEN }}
 
-      - name: Build and push
+      - name: Build
         id: docker_build
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
+          load: true
           tags: quay.io/dockstore/dockstore-mcp:${{ steps.ref.outputs.sanitized }}
+
+      # Test the exact image about to be published, not just the one CI built
+      - name: Smoke test
+        run: |
+          docker run --rm -d --name mcp-smoke -p 8000:8000 quay.io/dockstore/dockstore-mcp:${{ steps.ref.outputs.sanitized }}
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health
+          docker rm -f mcp-smoke
+
+      - name: Push
+        run: docker push quay.io/dockstore/dockstore-mcp:${{ steps.ref.outputs.sanitized }}
 
       - name: Create checksums
         run: |

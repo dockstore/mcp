@@ -1,9 +1,9 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  # Pushes to develop and tags run this through deploy_tagged.yml, which only publishes an image once it passes
+  workflow_call:
 
 jobs:
   test:
