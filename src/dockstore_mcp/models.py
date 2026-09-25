@@ -379,6 +379,14 @@ class ToolFile(BaseModel):
     checksum: Checksum | None = Field(default=None, description="Checksum of the file.")
 
 
+class ToolVersionWithFiles(ToolVersion):
+    """One version of a GA4GH TRS tool, optionally with its file listing."""
+
+    files: list[ToolFile] | None = Field(
+        default=None, description="Every file of this version in the requested descriptor language, if asked for."
+    )
+
+
 class EntryField(StrEnum):
     """Fields of an :class:`Entry` that get_entry can return."""
 

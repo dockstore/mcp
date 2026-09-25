@@ -18,8 +18,8 @@ Unlike the tools in ``entries.py`` and ``search.py``, these are wired up to the 
 Dockstore API: every one is an unauthenticated GET against the TRS V2 API.
 
 The lookups form a chain: ``list_tools``/``search_tools`` yield tool ids,
-``get_tool``/``list_tool_versions`` yield version names, and a version's
-``get_tool_files`` listing yields the paths ``get_tool_descriptor_by_path`` takes.
+``get_tool``/``list_tool_versions`` yield version names, and ``get_tool_version``'s
+file listing yields the paths ``get_tool_descriptor_by_path`` takes.
 """
 
 import asyncio
@@ -42,6 +42,7 @@ from dockstore_mcp.models import (
     ToolSummary,
     ToolVersion,
     ToolVersionSummary,
+    ToolVersionWithFiles,
     TrsDescriptorType,
     TrsInfo,
 )
@@ -323,13 +324,35 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return versions
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def get_tool_version(tool_id: ToolId, version_id: VersionId) -> ToolVersion:
-        """Retrieve one version of a tool or workflow: its authors, container images, and languages.
+    async def get_tool_version(
+        tool_id: ToolId,
+        version_id: VersionId,
+        files: Annotated[
+            TrsDescriptorType | None,
+            Field(
+                description=(
+                    "Also list every file of the version in this descriptor language, without their content. "
+                    "Omit it for just the version's metadata."
+                )
+            ),
+        ] = None,
+    ) -> ToolVersionWithFiles:
+        """Retrieve one version of a tool or workflow: its authors, container images, languages, and optionally files.
+
+        Pass ``files`` to also list the version's secondary descriptors, test parameter
+        files, and containerfile, then fetch each with get_tool_descriptor_by_path.
 
         Returns:
-            The version's metadata.
+            The version's metadata and, if ``files`` is given, each file's path and type
+            (primary or secondary descriptor, test file, etc.).
         """
-        return ToolVersion.model_validate(await get_json(version_path(tool_id, version_id)))
+        path = version_path(tool_id, version_id)
+        if files is None:
+            return ToolVersionWithFiles.model_validate(await get_json(path))
+        version, file_list = await asyncio.gather(get_json(path), get_json(f"{path}/{files}/files"))
+        return ToolVersionWithFiles.model_validate(
+            {**version, "files": [ToolFile.model_validate(item) for item in file_list]}
+        )
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def get_tool_descriptor_by_path(
@@ -340,7 +363,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             str | None,
             Field(
                 description=(
-                    "Path of the file relative to the primary descriptor, as get_tool_files gives. "
+                    "Path of the file relative to the primary descriptor, as get_tool_version's files give. "
                     "Omit it to fetch the primary descriptor itself."
                 )
             ),
@@ -349,8 +372,8 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         """Fetch one file of a version: its primary descriptor, or any other file by path.
 
         Omit ``relative_path`` for the primary descriptor: the main CWL, WDL, Nextflow,
-        etc. file, or notebook. That needs no get_tool_files call first, so the two can
-        run together. Otherwise pass any path get_tool_files lists, including imported
+        etc. file, or notebook. That needs no get_tool_version call first, so the two can
+        run together. Otherwise pass any path get_tool_version's files list, including imported
         descriptors, test parameter files, and the containerfile (e.g. Dockerfile),
         which any of the version's descriptor types can fetch.
 
@@ -361,16 +384,3 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         if relative_path is not None:
             path += f"/{_segment(relative_path)}"
         return FileWrapper.model_validate(await get_json(path))
-
-    @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def get_tool_files(tool_id: ToolId, version_id: VersionId, descriptor_type: DescriptorType) -> list[ToolFile]:
-        """List every file of one version, without their content.
-
-        Use this to find a version's secondary descriptors, test parameter files, and
-        containerfile, then fetch each with get_tool_descriptor_by_path.
-
-        Returns:
-            Each file's path and type (primary or secondary descriptor, test file, etc.).
-        """
-        data = await get_json(f"{version_path(tool_id, version_id)}/{descriptor_type}/files")
-        return [ToolFile.model_validate(item) for item in data]

@@ -372,6 +372,8 @@ async def test_get_tool_version(client: Client[Any], requests_made: list[httpx.R
     assert result.data.images[0].checksum[0].type == "sha-256"
     assert result.data.descriptor_type_version == {"CWL": ["v1.0"]}
     assert requests_made[0].url.raw_path.endswith(b"/versions/feature%2Fbranch")
+    assert result.data.files is None
+    assert len(requests_made) == 1
 
 
 async def test_get_tool_descriptor_by_path_defaults_to_the_primary_descriptor(
@@ -398,16 +400,17 @@ async def test_get_tool_descriptor_by_path_encodes_the_path(
     assert requests_made[0].url.raw_path.endswith(b"/CWL/descriptor/..%2Ftools%2Fstep.cwl")
 
 
-async def test_get_tool_files(client: Client[Any]) -> None:
+async def test_get_tool_version_with_files(client: Client[Any]) -> None:
     async with client:
         result = await client.call_tool(
-            "get_tool_files", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "descriptor_type": "CWL"}
+            "get_tool_version", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "files": "CWL"}
         )
-    assert [(file.path, file.file_type) for file in result.data] == [
+    assert result.data.author == ["Jane Doe"]
+    assert [(file.path, file.file_type) for file in result.data.files] == [
         ("main.cwl", "PRIMARY_DESCRIPTOR"),
         (SECONDARY_PATH, "SECONDARY_DESCRIPTOR"),
     ]
-    assert result.data[1].checksum.checksum == "789abc"
+    assert result.data.files[1].checksum.checksum == "789abc"
 
 
 @pytest.mark.parametrize(
@@ -424,12 +427,12 @@ async def test_get_tool_descriptor_by_path_fetches_tests_and_containerfiles(
     assert result.data.content == content
 
 
-async def test_get_tool_files_for_a_notebook(client: Client[Any]) -> None:
+async def test_get_tool_version_with_files_for_a_notebook(client: Client[Any]) -> None:
     async with client:
         result = await client.call_tool(
-            "get_tool_files", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "descriptor_type": "JUPYTER"}
+            "get_tool_version", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "files": "JUPYTER"}
         )
-    assert [file.path for file in result.data] == ["main.ipynb"]
+    assert [file.path for file in result.data.files] == ["main.ipynb"]
 
 
 async def test_get_tool_rejects_unknown_descriptor_types(client: Client[Any]) -> None:

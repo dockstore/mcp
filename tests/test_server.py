@@ -29,7 +29,6 @@ async def test_every_tool_is_advertised(client: Client[Any]) -> None:
         "get_file",
         "get_tool",
         "get_tool_descriptor_by_path",
-        "get_tool_files",
         "get_tool_version",
         "get_trs_info",
         "get_version",
