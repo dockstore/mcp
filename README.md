@@ -127,17 +127,17 @@ the full list.
 
 ## Tools
 
-| Tool                          | Description                                                                          |
-| ----------------------------- | ------------------------------------------------------------------------------------ |
-| `get_trs_info`                | Reports instance and version; unless `local_only`, also TRS info and tool classes.   |
-| `list_tools`                  | Lists one page of TRS tools, optionally filtered by name, class, language, etc.      |
-| `get_tool`                    | Retrieves one TRS tool by id, with all of its versions in full or summarized.        |
-| `get_tool_version`            | Retrieves one version of a TRS tool: authors, images, languages, optionally files.   |
-| `get_tool_descriptor_by_path` | Fetches a version's primary descriptor, or any file get_tool_version lists, by path. |
-| `search_entries`              | Searches entries by keyword and facet, the equivalent of the site's Search page.     |
-| `get_entry`                   | Retrieves the requested fields of one entry.                                         |
-| `get_version`                 | Retrieves the requested fields of one version of an entry.                           |
-| `get_file`                    | Retrieves the requested fields of one file belonging to a version.                   |
+| Tool                          | Implemented | Description                                                                          |
+| ----------------------------- | ----------- | ------------------------------------------------------------------------------------ |
+| `get_trs_info`                | ✅          | Reports instance and version; unless `local_only`, also TRS info and tool classes.   |
+| `list_tools`                  | ✅          | Lists one page of TRS tools, optionally filtered by name, class, language, etc.      |
+| `get_tool`                    | ✅          | Retrieves one TRS tool by id, with all of its versions in full or summarized.        |
+| `get_tool_version`            | ✅          | Retrieves one version of a TRS tool: authors, images, languages, optionally files.   |
+| `get_tool_descriptor_by_path` | ✅          | Fetches a version's primary descriptor, or any file get_tool_version lists, by path. |
+| `search_entries`              | ❌          | Searches entries by keyword and facet, the equivalent of the site's Search page.     |
+| `get_entry`                   | ❌          | Retrieves the requested fields of one entry.                                         |
+| `get_version`                 | ❌          | Retrieves the requested fields of one version of an entry.                           |
+| `get_file`                    | ❌          | Retrieves the requested fields of one file belonging to a version.                   |
 
 The TRS tools, from `get_trs_info` to `get_tool_descriptor_by_path`, call Dockstore's GA4GH
 TRS V2 API directly. They form a chain: `list_tools` yields tool ids, a
