@@ -9,7 +9,7 @@ An MCP (Model Context Protocol) server, built on FastMCP 4, that exposes Docksto
 assistants. It is a standalone process deployed alongside the Dockstore webservice,
 talking to Dockstore's GA4GH Tool Registry Service (TRS) API and its own proprietary API.
 
-**Status: scaffold.** The GA4GH TRS tools in `trs.py` have working bodies. The four Dockstore
+**Status: prototype without search.** The GA4GH TRS tools in `trs.py` have working bodies. The four Dockstore
 tools (`search_entries`, `get_entry`, `get_version`, `get_file`) are fully declared
 (names, arguments, response models, docstrings) but each raises `NotImplementedError`
 until wired up to the real Dockstore API.

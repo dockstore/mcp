@@ -13,7 +13,7 @@ MCP, so it is deployed alongside the Dockstore webservice rather than inside it.
 
 It is built on [FastMCP](https://gofastmcp.com) 4 and ships as a container image.
 
-> **Status: scaffold.** The GA4GH TRS tools (`get_trs_info` through
+> **Status: prototype without search.** The GA4GH TRS tools (`get_trs_info` through
 > `get_tool_descriptor_by_path`) have working bodies; the other four Dockstore tools are
 > declared — names, arguments, and response shapes — but each one raises
 > `NotImplementedError` until it is wired up to the Dockstore API.
