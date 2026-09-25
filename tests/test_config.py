@@ -42,15 +42,19 @@ def test_derived_api_urls() -> None:
     assert settings.api_url == "https://qa.dockstore.org/api"
 
 
-def test_user_agent_reports_the_git_ref(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_version_reports_the_git_ref(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DOCKSTORE_MCP_GIT_REF", "1.21.0")
-    assert Settings().user_agent == "dockstore-mcp/1.21.0"
+    settings = Settings()
+    assert settings.server_version == "1.21.0"
+    assert settings.user_agent == "dockstore-mcp/1.21.0"
 
 
-def test_user_agent_falls_back_to_the_package_version(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_version_falls_back_to_the_package_version(monkeypatch: pytest.MonkeyPatch) -> None:
     # The Dockerfile sets DOCKSTORE_MCP_GIT_REF to "" when built without GIT_REF.
     monkeypatch.setenv("DOCKSTORE_MCP_GIT_REF", "")
-    assert Settings().user_agent == f"dockstore-mcp/{__version__}"
+    settings = Settings()
+    assert settings.server_version == __version__
+    assert settings.user_agent == f"dockstore-mcp/{__version__}"
 
 
 @pytest.mark.parametrize(("field", "value"), [("port", 0), ("path", "mcp"), ("transport", "carrier-pigeon")])

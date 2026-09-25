@@ -85,9 +85,14 @@ class Settings(BaseSettings):
         return f"{self.dockstore_url}/api"
 
     @property
+    def server_version(self) -> str:
+        """Version this server reports: the git ref it was built from, else the package version."""
+        return self.git_ref or __version__
+
+    @property
     def user_agent(self) -> str:
         """User-Agent sent with every request to Dockstore, e.g. 'dockstore-mcp/1.21.0'."""
-        return f"dockstore-mcp/{self.git_ref or __version__}"
+        return f"dockstore-mcp/{self.server_version}"
 
 
 @lru_cache(maxsize=1)

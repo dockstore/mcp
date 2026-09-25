@@ -30,7 +30,6 @@ import httpx2 as httpx
 from fastmcp import FastMCP
 from pydantic import Field
 
-from dockstore_mcp import __version__
 from dockstore_mcp.casing import normalize_keys
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import (
@@ -214,7 +213,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             service's identifiers, the TRS API version implemented, the organization
             operating it, and every tool class it recognizes.
         """
-        local = {"dockstore_url": settings.dockstore_url, "server_version": __version__}
+        local = {"dockstore_url": settings.dockstore_url, "server_version": settings.server_version}
         if local_only:
             return TrsInfo.model_validate(local)
         service_info, tool_classes = await asyncio.gather(get("/service-info"), get("/toolClasses"))

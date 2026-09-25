@@ -19,6 +19,8 @@ from fastmcp import Client, FastMCP
 from starlette.testclient import TestClient
 
 from dockstore_mcp import __version__
+from dockstore_mcp.config import Settings
+from dockstore_mcp.server import create_server
 
 
 async def test_every_tool_is_advertised(client: Client[Any]) -> None:
@@ -42,3 +44,14 @@ def test_health_endpoint(server: FastMCP) -> None:
         response = http.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "version": __version__}
+
+
+async def test_every_version_reports_the_git_ref(settings: Settings) -> None:
+    server = create_server(settings.model_copy(update={"git_ref": "0.1-alpha.4"}))
+    with TestClient(server.http_app()) as http:
+        assert http.get("/health").json()["version"] == "0.1-alpha.4"
+    async with Client(server) as client:
+        assert client.server_info is not None
+        assert client.server_info.version == "0.1-alpha.4"
+        result = await client.call_tool("get_trs_info", {"local_only": True})
+    assert result.data.server_version == "0.1-alpha.4"

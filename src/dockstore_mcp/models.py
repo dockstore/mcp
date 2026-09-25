@@ -209,7 +209,9 @@ class TrsInfo(BaseModel):
     """
 
     dockstore_url: str = Field(description="The Dockstore instance this server is configured to talk to.")
-    server_version: str = Field(description="Version of the dockstore-mcp package that answered.")
+    server_version: str = Field(
+        description="Git tag or ref the answering server was built from, else its package version."
+    )
     id: str | None = Field(
         default=None, description="Unique identifier of this service, in reverse domain name notation."
     )
