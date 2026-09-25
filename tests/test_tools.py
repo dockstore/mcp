@@ -359,11 +359,21 @@ async def test_search_summarizes_each_hit(client: Client[Any], dockstore: FakeDo
         "name": "COVID-19-ARTIC-ILLUMINA",
         "trs_id": "#workflow/github.com/iwc-workflows/sars-cov-2-variant-calling/COVID-19-ARTIC-ILLUMINA",
         "topic": "Variant calling from SARS-CoV-2 paired-end Illumina ARTIC data.",
+        "categories": ["COVID-19"],
+        "subject_areas": ["Virology"],
+        # A category filed twice is reported once.
+        "operations": ["Variant calling"],
+        "input_formats": ["FASTQ-sanger"],
+        "output_formats": ["VCF"],
+        "input_data": ["Short-read sequencing data"],
+        "output_data": ["Variant call data"],
         "updated_at": "2026-05-13T15:33:42Z",
     }
     assert (tool["id"], tool["entry_type"], tool["descriptor_type"]) == ("188", "tool", "CWL")
     assert (tool["name"], tool["trs_id"]) == ("pcawg-dkfz-workflow", "quay.io/pancancer/pcawg-dkfz-workflow")
     assert tool["updated_at"] == "2022-03-31T21:37:31.404000Z"
+    # An entry filed under no categories has an empty list for each facet.
+    assert tool["categories"] == tool["operations"] == tool["output_data"] == []
 
 
 async def test_search_ids_lead_to_get_entry(client: Client[Any], dockstore: FakeDockstore) -> None:

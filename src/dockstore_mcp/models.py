@@ -99,6 +99,13 @@ class EntrySummary(BaseModel):
     name: str = Field(description="Display name of the entry.")
     trs_id: str = Field(description="GA4GH TRS identifier, for use against the TRS API.")
     topic: str | None = Field(default=None, description="One-line description of what the entry does.")
+    categories: list[str] = Field(default_factory=list, description="Categories the entry has been placed in.")
+    subject_areas: list[str] = Field(default_factory=list, description="Subject areas the entry works in.")
+    operations: list[str] = Field(default_factory=list, description="Operations the entry performs.")
+    input_formats: list[str] = Field(default_factory=list, description="File formats the entry accepts as input.")
+    output_formats: list[str] = Field(default_factory=list, description="File formats the entry produces as output.")
+    input_data: list[str] = Field(default_factory=list, description="Kinds of data the entry accepts as input.")
+    output_data: list[str] = Field(default_factory=list, description="Kinds of data the entry produces as output.")
     updated_at: datetime | None = Field(default=None, description="When the entry was last modified.")
 
 

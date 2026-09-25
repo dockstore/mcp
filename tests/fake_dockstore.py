@@ -160,6 +160,17 @@ CATEGORIES: list[dict[str, Any]] = [
     },
 ]
 
+#: The workflow's categories as the index holds them, filed by facet.
+_INDEXED_CATEGORIES: dict[str, Any] = {
+    "categories": [CATEGORIES[0]],
+    "topic": [CATEGORIES[2]],
+    "operation": [CATEGORIES[1], CATEGORIES[1]],
+    "input-format": [CATEGORIES[3]],
+    "output-format": [CATEGORIES[5]],
+    "input-data": [CATEGORIES[4]],
+    "output-data": [CATEGORIES[6]],
+}
+
 #: What the search endpoint answers with: the workflow and tool above as the
 #: index holds them, plus a hit with no path, which cannot be summarized.  Each
 #: document's own id is 0; the entry's identifier is the document's ``_id``.
@@ -181,6 +192,7 @@ SEARCH_HITS: dict[str, Any] = {
                     "repository": "sars-cov-2-variant-calling",
                     "full_workflow_path": WORKFLOW["full_workflow_path"],
                     "trsId": WORKFLOW["trsId"],
+                    **_INDEXED_CATEGORIES,
                     "topicAutomatic": WORKFLOW["topic"],
                     "dbCreateDate": WORKFLOW["dbCreateDate"],
                     "last_modified_date": WORKFLOW["last_modified_date"],

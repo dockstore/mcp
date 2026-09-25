@@ -146,7 +146,8 @@ written in Lucene query syntax and sent as `query_string` queries. Results can b
 (with keywords, the square of the Elasticsearch score times the natural log of 1.05 plus the entry's
 indexed `relevance`),
 name, stars, or last update, and a call returns up to 100 of them (ten by default)
-along with the total number that matched. Services are not indexed, so they cannot be
+along with the total number that matched. Each result carries the entry's categories and
+EDAM facets as the index files them, so they cost no extra request. Services are not indexed, so they cannot be
 searched for.
 
 `get_entry` takes the numeric identifier Dockstore gives an entry and reads it from

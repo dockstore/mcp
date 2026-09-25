@@ -64,6 +64,18 @@ _NATURAL_ORDER = {
 #: The most keywords of a query that are looked for in paths, as on the Search page.
 _MAX_TERMS = 20
 
+#: The index fields an entry's categories are filed under, each with the
+#: :class:`EntrySummary` field its display names are reported in.
+_FACET_FIELDS = {
+    "categories": "categories",
+    "topic": "subject_areas",
+    "operation": "operations",
+    "input-format": "input_formats",
+    "output-format": "output_formats",
+    "input-data": "input_data",
+    "output-data": "output_data",
+}
+
 #: Where ``query`` looks, and how much a match in each place counts for.  The
 #: weights are the Search page's, so results come back in the order a person
 #: searching the site would see them.
@@ -72,19 +84,7 @@ _QUERY_FIELDS = [
     "labels^2",
     "all_authors.name^3",
     "topicAutomatic^4",
-    *(
-        f"{facet}.{key}^{boost}"
-        for facet in (
-            "categories",
-            "topic",
-            "operation",
-            "input-format",
-            "output-format",
-            "input-data",
-            "output-data",
-        )
-        for key, boost in (("displayName", 3), ("topic", 2))
-    ),
+    *(f"{facet}.{key}^{boost}" for facet in _FACET_FIELDS for key, boost in (("displayName", 3), ("topic", 2))),
     "workflowVersions.sourceFiles.content^0.2",
     "tags.sourceFiles.content^0.2",
 ]
@@ -108,6 +108,7 @@ _SOURCE_FIELDS = [
     "tool_path",
     "trsId",
     "topicAutomatic",
+    *(f"{facet}.displayName" for facet in _FACET_FIELDS),
     "last_modified_date",
     "lastUpdated",
     "dbUpdateDate",
@@ -417,7 +418,16 @@ def _to_summary(hit: Any) -> EntrySummary | None:
         # An entry indexed without its TRS identifier has one made from its path, behind its type's prefix.
         trs_id=source.get("trsId") or f"{metadata.get('trsPrefix') or ''}{path}",
         topic=source.get("topicAutomatic"),
+        **{field: _display_names(source.get(facet)) for facet, field in _FACET_FIELDS.items()},
         updated_at=_timestamp(
             source.get("last_modified_date") or source.get("lastUpdated") or source.get("dbUpdateDate")
         ),
     )
+
+
+def _display_names(categories: Any) -> list[str]:
+    """Return the display names of the categories an entry is filed under in one facet, each once."""
+    if not isinstance(categories, list):
+        return []
+    names = (category.get("displayName") for category in categories if isinstance(category, dict))
+    return list(dict.fromkeys(name for name in names if isinstance(name, str) and name))
