@@ -114,7 +114,6 @@ RESPONSES: dict[str, Any] = {
     "/service-info": SERVICE_INFO_RESPONSE,
     "/toolClasses": TOOL_CLASSES_RESPONSE,
     f"/tools/{TOOL_ID}": TOOL_RESPONSE,
-    f"/tools/{TOOL_ID}/versions": [VERSION_RESPONSE],
     _VERSION_PATH: VERSION_RESPONSE,
     f"{_VERSION_PATH}/CWL/descriptor": DESCRIPTOR_RESPONSE,
     f"{_VERSION_PATH}/CWL/descriptor/{SECONDARY_PATH}": DESCRIPTOR_RESPONSE,
@@ -349,17 +348,21 @@ async def test_get_tool_encodes_the_id(client: Client[Any], requests_made: list[
     assert requests_made[0].url.raw_path.endswith(b"/tools/%23workflow%2Fgithub.com%2Forg%2Frepo%2Fname")
 
 
-async def test_list_tool_versions(client: Client[Any]) -> None:
+async def test_get_tool_returns_full_versions_by_default(client: Client[Any]) -> None:
     async with client:
-        result = await client.call_tool("list_tool_versions", {"tool_id": TOOL_ID})
-    assert [version.name for version in result.data] == [VERSION_ID]
-
-
-async def test_list_tool_versions_summarizes(client: Client[Any]) -> None:
-    async with client:
-        result = await client.call_tool("list_tool_versions", {"tool_id": TOOL_ID, "summary": True})
+        result = await client.call_tool("get_tool", {"tool_id": TOOL_ID})
     assert result.structured_content is not None
-    [version] = result.structured_content["result"]
+    [version] = result.structured_content["versions"]
+    assert version["name"] == VERSION_ID
+    assert version["images"][0]["registry_host"] == "quay.io"
+
+
+async def test_get_tool_summarizes_versions(client: Client[Any]) -> None:
+    async with client:
+        result = await client.call_tool("get_tool", {"tool_id": TOOL_ID, "summary": True})
+    assert result.structured_content is not None
+    assert result.structured_content["organization"] == "org"
+    [version] = result.structured_content["versions"]
     assert set(version) == {"name", "meta_version", "is_production"}
     assert version["name"] == VERSION_ID
 

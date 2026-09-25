@@ -131,8 +131,7 @@ the full list.
 | ----------------------------- | ------------------------------------------------------------------------------------ |
 | `get_trs_info`                | Reports instance and version; unless `local_only`, also TRS info and tool classes.   |
 | `list_tools`                  | Lists one page of TRS tools, optionally filtered by name, class, language, etc.      |
-| `get_tool`                    | Retrieves one TRS tool by id, including all of its versions.                         |
-| `list_tool_versions`          | Lists every version of one TRS tool.                                                 |
+| `get_tool`                    | Retrieves one TRS tool by id, with all of its versions in full or summarized.        |
 | `get_tool_version`            | Retrieves one version of a TRS tool: authors, images, languages, optionally files.   |
 | `get_tool_descriptor_by_path` | Fetches a version's primary descriptor, or any file get_tool_version lists, by path. |
 | `search_entries`              | Searches entries by keyword and facet, the equivalent of the site's Search page.     |

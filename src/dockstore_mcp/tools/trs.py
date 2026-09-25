@@ -18,7 +18,7 @@ Unlike the tools in ``entries.py`` and ``search.py``, these are wired up to the 
 Dockstore API: every one is an unauthenticated GET against the TRS V2 API.
 
 The lookups form a chain: ``list_tools`` yields tool ids,
-``get_tool``/``list_tool_versions`` yield version names, and ``get_tool_version``'s
+``get_tool`` yields version names, and ``get_tool_version``'s
 file listing yields the paths ``get_tool_descriptor_by_path`` takes.
 """
 
@@ -37,6 +37,7 @@ from dockstore_mcp.models import (
     FileWrapper,
     Tool,
     ToolClass,
+    ToolDetail,
     ToolFile,
     ToolPage,
     ToolSummary,
@@ -68,7 +69,7 @@ ToolId = Annotated[
     str,
     Field(description="TRS tool id, e.g. '#workflow/github.com/org/repo/name', as list_tools gives."),
 ]
-VersionId = Annotated[str, Field(description="Version name, e.g. 'master' or '1.0', as list_tool_versions gives.")]
+VersionId = Annotated[str, Field(description="Version name, e.g. 'master' or '1.0', as get_tool gives.")]
 DescriptorType = Annotated[TrsDescriptorType, Field(description="Descriptor language of the files to fetch.")]
 Limit = Annotated[int, Field(ge=1, le=1000, description="Most tools to return in this page.")]
 Summary = Annotated[
@@ -271,16 +272,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return await get_tool_page(params, limit, offset, summary)
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def get_tool(tool_id: ToolId) -> Tool:
-        """Retrieve one tool or workflow by its TRS id, including every one of its versions.
-
-        Returns:
-            The tool's metadata and its full list of versions.
-        """
-        return Tool.model_validate(await get_json(f"/tools/{_segment(tool_id)}"))
-
-    @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def list_tool_versions(
+    async def get_tool(
         tool_id: ToolId,
         summary: Annotated[
             bool,
@@ -291,25 +283,24 @@ def register(mcp: FastMCP, settings: Settings) -> None:
                 )
             ),
         ] = False,
-    ) -> list[ToolVersion] | list[ToolVersionSummary]:
-        """List every version of one tool or workflow.
+    ) -> ToolDetail:
+        """Retrieve one tool or workflow by its TRS id, including every one of its versions.
 
-        Each version's ``name`` is what the other version tools take as
-        ``version_id``, and its ``descriptor_type`` lists the languages its files can
-        be fetched in.
+        Each version's ``name`` is what the version tools take as ``version_id``, and
+        its ``descriptor_type`` lists the languages its files can be fetched in.
 
         A workflow in a monorepo can have a version for every branch and tag of its
         repository, over a thousand of them, so ask for a ``summary`` unless you need
         each version's images or authors.
 
         Returns:
-            Every version of the tool, in full or (if ``summary``) summarized.
+            The tool's metadata and every one of its versions, in full or (if ``summary``) summarized.
         """
-        data = await get_json(f"/tools/{_segment(tool_id)}/versions")
-        versions = [ToolVersion.model_validate(item) for item in data]
-        if summary:
-            return [ToolVersionSummary.model_validate(version, from_attributes=True) for version in versions]
-        return versions
+        tool = Tool.model_validate(await get_json(f"/tools/{_segment(tool_id)}"))
+        versions: list[ToolVersion] | list[ToolVersionSummary] | None = tool.versions
+        if summary and tool.versions is not None:
+            versions = [ToolVersionSummary.model_validate(version, from_attributes=True) for version in tool.versions]
+        return ToolDetail.model_validate({**dict(tool), "versions": versions})
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def get_tool_version(

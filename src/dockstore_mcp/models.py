@@ -44,11 +44,13 @@ __all__ = [
     "SortOrder",
     "Tool",
     "ToolClass",
+    "ToolDetail",
     "ToolFile",
     "ToolPage",
     "ToolSummary",
     "ToolVersion",
     "ToolVersionSummary",
+    "ToolVersionWithFiles",
     "TrsDescriptorType",
     "TrsInfo",
     "Version",
@@ -301,8 +303,8 @@ class ToolVersionSummary(BaseModel):
     is_production: bool | None = Field(default=None, description="Whether the version is marked production-ready.")
 
 
-class Tool(BaseModel):
-    """A GA4GH TRS tool: a Dockstore tool, workflow, or other entry as the TRS API describes it."""
+class _ToolBase(BaseModel):
+    """The fields of a GA4GH TRS tool other than its versions, shared by :class:`Tool` and :class:`ToolDetail`."""
 
     id: str | None = Field(default=None, description="TRS identifier of the tool; pass this as tool_id.")
     url: str | None = Field(default=None, description="TRS API URL of the tool.")
@@ -314,7 +316,20 @@ class Tool(BaseModel):
     meta_version: str | None = Field(default=None, description="Revision of this tool's metadata.")
     has_checker: bool | None = Field(default=None, description="Whether the tool has a checker workflow.")
     checker_url: str | None = Field(default=None, description="TRS URL of the checker workflow, if any.")
+
+
+class Tool(_ToolBase):
+    """A GA4GH TRS tool: a Dockstore tool, workflow, or other entry as the TRS API describes it."""
+
     versions: list[ToolVersion] | None = Field(default=None, description="Every version of the tool.")
+
+
+class ToolDetail(_ToolBase):
+    """A GA4GH TRS tool as get_tool returns it, with every version in full or summarized."""
+
+    versions: list[ToolVersion] | list[ToolVersionSummary] | None = Field(
+        default=None, description="Every version of the tool, in full or (if summarized) just its name and status."
+    )
 
 
 class ToolSummary(BaseModel):
@@ -331,7 +346,7 @@ class ToolSummary(BaseModel):
         default_factory=list,
         description=(
             "Names of up to 10 versions, production-ready ones first; pass one as version_id to the version tools. "
-            "Use list_tool_versions for the rest."
+            "Use get_tool for the rest."
         ),
     )
     version_count: int = Field(default=0, description="How many versions the tool has in all.")
