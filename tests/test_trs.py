@@ -430,6 +430,30 @@ async def test_get_tool_descriptor_by_path_fetches_tests_and_containerfiles(
     assert result.data.content == content
 
 
+async def test_get_tool_version_keeps_the_metadata_when_the_file_listing_fails(
+    client: Client[Any], _mock_trs_api: dict[str, httpx.Response]
+) -> None:
+    _mock_trs_api[f"{_VERSION_PATH}/CWL/files"] = httpx.Response(500)
+
+    async with client:
+        result = await client.call_tool(
+            "get_tool_version", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "files": "CWL"}
+        )
+    assert result.data.author == ["Jane Doe"]
+    assert result.data.files is None
+    assert "500" in result.data.files_error
+
+
+async def test_get_tool_version_surfaces_a_missing_version(
+    client: Client[Any], _mock_trs_api: dict[str, httpx.Response]
+) -> None:
+    _mock_trs_api[_VERSION_PATH] = httpx.Response(404)
+
+    async with client:
+        with pytest.raises(ToolError):
+            await client.call_tool("get_tool_version", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "files": "CWL"})
+
+
 async def test_get_tool_version_with_files_for_a_notebook(client: Client[Any]) -> None:
     async with client:
         result = await client.call_tool(

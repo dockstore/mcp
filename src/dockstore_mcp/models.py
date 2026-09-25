@@ -400,6 +400,9 @@ class ToolVersionWithFiles(ToolVersion):
     files: list[ToolFile] | None = Field(
         default=None, description="Every file of this version in the requested descriptor language, if asked for."
     )
+    files_error: str | None = Field(
+        default=None, description="Why the file listing could not be fetched, if it was asked for and failed."
+    )
 
 
 class EntryField(StrEnum):

@@ -323,15 +323,22 @@ def register(mcp: FastMCP, settings: Settings) -> None:
 
         Returns:
             The version's metadata and, if ``files`` is given, each file's path and type
-            (primary or secondary descriptor, test file, etc.).
+            (primary or secondary descriptor, test file, etc.). If only the file listing
+            fails, the metadata still comes back, with ``files_error`` saying why.
         """
         path = version_path(tool_id, version_id)
         if files is None:
             return ToolVersionWithFiles.model_validate(await get_json(path))
-        version, file_list = await asyncio.gather(get_json(path), get_json(f"{path}/{files}/files"))
-        return ToolVersionWithFiles.model_validate(
-            {**version, "files": [ToolFile.model_validate(item) for item in file_list]}
-        )
+
+        async def list_files() -> dict[str, Any]:
+            try:
+                data = await get_json(f"{path}/{files}/files")
+            except httpx.HTTPError as error:
+                return {"files_error": f"Could not list the version's {files} files: {error}"}
+            return {"files": [ToolFile.model_validate(item) for item in data]}
+
+        version, file_listing = await asyncio.gather(get_json(path), list_files())
+        return ToolVersionWithFiles.model_validate({**version, **file_listing})
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def get_tool_descriptor_by_path(
