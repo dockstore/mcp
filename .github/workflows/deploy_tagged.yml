@@ -19,7 +19,7 @@ jobs:
 
   build:
     needs: ci
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
 
     permissions:
       id-token: write
@@ -55,6 +55,7 @@ jobs:
           context: .
           load: true
           tags: quay.io/dockstore/dockstore-mcp:${{ steps.ref.outputs.sanitized }}
+          build-args: GIT_REF=${{ steps.ref.outputs.sanitized }}
 
       # Test the exact image about to be published, not just the one CI built
       - name: Smoke test

@@ -28,6 +28,7 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 __all__ = [
+    "Checksum",
     "DescriptorLanguage",
     "Entry",
     "EntryField",
@@ -35,11 +36,21 @@ __all__ = [
     "EntryType",
     "File",
     "FileField",
+    "FileWrapper",
+    "ImageData",
     "ServiceOrganization",
     "ServiceType",
     "SortBy",
     "SortOrder",
+    "Tool",
     "ToolClass",
+    "ToolFile",
+    "ToolPage",
+    "ToolSummary",
+    "ToolVersion",
+    "ToolVersionSummary",
+    "ToolVersionWithFiles",
+    "TrsDescriptorType",
     "TrsInfo",
     "Version",
     "VersionField",
@@ -191,13 +202,25 @@ class ServiceOrganization(BaseModel):
 
 
 class TrsInfo(BaseModel):
-    """GA4GH TRS service-info: metadata describing a Dockstore instance's TRS API."""
+    """The Dockstore instance this server talks to and, unless only local details were asked for, its TRS service-info.
 
-    id: str = Field(description="Unique identifier of this service, in reverse domain name notation.")
-    name: str = Field(description="Human-readable name of this service.")
-    type: ServiceType = Field(description="Which GA4GH API this service implements, and at what version.")
-    organization: ServiceOrganization = Field(description="Organization operating this service.")
-    version: str = Field(description="Version of the service software.")
+    Only ``dockstore_url`` and ``server_version`` are filled in when ``get_trs_info`` is
+    asked not to contact Dockstore.
+    """
+
+    dockstore_url: str = Field(description="The Dockstore instance this server is configured to talk to.")
+    server_version: str = Field(
+        description="Git tag or ref the answering server was built from, else its package version."
+    )
+    id: str | None = Field(
+        default=None, description="Unique identifier of this service, in reverse domain name notation."
+    )
+    name: str | None = Field(default=None, description="Human-readable name of this service.")
+    type: ServiceType | None = Field(
+        default=None, description="Which GA4GH API this service implements, and at what version."
+    )
+    organization: ServiceOrganization | None = Field(default=None, description="Organization operating this service.")
+    version: str | None = Field(default=None, description="Version of the service software.")
     description: str | None = Field(default=None, description="Human-readable description of the service.")
     contact_url: str | None = Field(default=None, description="Contact URL or mailto link for the service.")
     documentation_url: str | None = Field(default=None, description="URL of the service's documentation.")
@@ -206,6 +229,10 @@ class TrsInfo(BaseModel):
     )
     created_at: datetime | None = Field(default=None, description="When the service was first deployed.")
     updated_at: datetime | None = Field(default=None, description="When the service was last updated.")
+    tool_classes: list["ToolClass"] = Field(
+        default_factory=list,
+        description="Every tool class (e.g. 'Workflow') the service sorts entries into; list_tools filters by these.",
+    )
 
 
 class ToolClass(BaseModel):
@@ -214,6 +241,163 @@ class ToolClass(BaseModel):
     id: str | None = Field(default=None, description="Unique identifier for the class.")
     name: str | None = Field(default=None, description="Short, friendly name for the class.")
     description: str | None = Field(default=None, description="Longer explanation of what this class is.")
+
+
+class TrsDescriptorType(StrEnum):
+    """The descriptor languages the GA4GH TRS API addresses files by, spelled as its URLs expect."""
+
+    CWL = "CWL"
+    WDL = "WDL"
+    NEXTFLOW = "NFL"
+    GALAXY = "GALAXY"
+    SNAKEMAKE = "SMK"
+    JUPYTER = "JUPYTER"
+    SERVICE = "SERVICE"
+
+
+class Checksum(BaseModel):
+    """A checksum of a file or container image."""
+
+    checksum: str | None = Field(default=None, description="The hex-encoded checksum value.")
+    type: str | None = Field(default=None, description="Hash algorithm used, for example 'sha-256'.")
+
+
+class ImageData(BaseModel):
+    """A container image a TRS tool version runs in."""
+
+    registry_host: str | None = Field(default=None, description="Registry hosting the image, e.g. 'quay.io'.")
+    image_name: str | None = Field(default=None, description="Name of the image, including its registry and tag.")
+    size: int | None = Field(default=None, description="Size of the image in bytes.")
+    updated: str | None = Field(default=None, description="When the image was last updated.")
+    checksum: list[Checksum] | None = Field(default=None, description="Checksums of the image.")
+    image_type: str | None = Field(default=None, description="Container technology, for example 'Docker'.")
+
+
+class ToolVersion(BaseModel):
+    """One version of a GA4GH TRS tool, for example a Git branch or tag."""
+
+    id: str | None = Field(default=None, description="TRS identifier of this version, '<tool id>:<version name>'.")
+    name: str | None = Field(default=None, description="Version name; pass this as version_id to the version tools.")
+    url: str | None = Field(default=None, description="TRS API URL of this version.")
+    author: list[str] | None = Field(default=None, description="Authors of this version.")
+    is_production: bool | None = Field(default=None, description="Whether the version is marked production-ready.")
+    images: list[ImageData] | None = Field(default=None, description="Container images this version runs in.")
+    descriptor_type: list[str] | None = Field(
+        default=None, description="Descriptor languages this version is available in, for example ['CWL']."
+    )
+    descriptor_type_version: dict[str, list[str]] | None = Field(
+        default=None, description="Language versions used, keyed by descriptor type, e.g. {'WDL': ['1.0']}."
+    )
+    containerfile: bool | None = Field(default=None, description="Whether a containerfile (e.g. Dockerfile) exists.")
+    meta_version: str | None = Field(default=None, description="Revision of this version's metadata.")
+    verified: bool | None = Field(default=None, description="Whether this version has been verified.")
+    verified_source: list[str] | None = Field(default=None, description="Who or what verified this version.")
+    signed: bool | None = Field(default=None, description="Whether this version is signed.")
+    included_apps: list[str] | None = Field(default=None, description="Apps bundled with this version.")
+
+
+class ToolVersionSummary(BaseModel):
+    """The few fields that pick out a TRS tool version in a list, without its images or authors."""
+
+    name: str | None = Field(default=None, description="Version name; pass this as version_id to the version tools.")
+    meta_version: str | None = Field(default=None, description="Revision of this version's metadata.")
+    is_production: bool | None = Field(default=None, description="Whether the version is marked production-ready.")
+
+
+class Tool(BaseModel):
+    """A GA4GH TRS tool: a Dockstore tool, workflow, or other entry as the TRS API describes it."""
+
+    id: str | None = Field(default=None, description="TRS identifier of the tool; pass this as tool_id.")
+    url: str | None = Field(default=None, description="TRS API URL of the tool.")
+    aliases: list[str] | None = Field(default=None, description="Other identifiers the tool is known by.")
+    organization: str | None = Field(default=None, description="Organization that published the tool.")
+    name: str | None = Field(default=None, description="Name of the tool.")
+    toolclass: ToolClass | None = Field(default=None, description="Category of the tool, e.g. 'Workflow'.")
+    description: str | None = Field(default=None, description="Description of the tool, usually its README.")
+    meta_version: str | None = Field(default=None, description="Revision of this tool's metadata.")
+    has_checker: bool | None = Field(default=None, description="Whether the tool has a checker workflow.")
+    checker_url: str | None = Field(default=None, description="TRS URL of the checker workflow, if any.")
+    # Parsed from the TRS API, versions are always in full: every ToolVersion field is
+    # optional, so left_to_right always picks it. Only get_tool(summary=True) swaps in
+    # summaries.
+    versions: list[ToolVersion] | list[ToolVersionSummary] | None = Field(
+        default=None,
+        union_mode="left_to_right",
+        description="Every version of the tool, in full or (if summarized) just its name and status.",
+    )
+
+
+class ToolSummary(BaseModel):
+    """The handful of fields that identify a TRS tool in a list, without its README or version details."""
+
+    id: str | None = Field(default=None, description="TRS identifier of the tool; pass this as tool_id.")
+    name: str | None = Field(default=None, description="Name of the tool.")
+    organization: str | None = Field(default=None, description="Organization that published the tool.")
+    tool_class: str | None = Field(default=None, description="Category of the tool, e.g. 'Workflow'.")
+    descriptor_types: list[str] = Field(
+        default_factory=list, description="Every descriptor language any of its versions is available in."
+    )
+    version_names: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Names of up to 10 versions, production-ready ones first; pass one as version_id to the version tools. "
+            "Use get_tool for the rest."
+        ),
+    )
+    version_count: int = Field(default=0, description="How many versions the tool has in all.")
+    versions_truncated: bool = Field(
+        default=False, description="Whether version_names leaves some versions out; see version_count."
+    )
+    description: str | None = Field(default=None, description="The start of the tool's description, shortened.")
+
+
+class ToolPage(BaseModel):
+    """One page of TRS tools, with enough context to fetch the rest."""
+
+    tools: list[Tool] | list[ToolSummary] = Field(
+        description="The tools on this page: in full, or as summaries if they were asked for."
+    )
+    offset: int = Field(description="Which page this is, counting from 0.")
+    limit: int = Field(description="Most tools a page holds.")
+    total: int | None = Field(
+        default=None, description="How many tools there are across every page, if Dockstore reported it."
+    )
+    next_offset: int | None = Field(
+        default=None, description="Offset of the next page; unset when this is the last page."
+    )
+
+
+class FileWrapper(BaseModel):
+    """The content of one file from a TRS tool version: a descriptor, test parameter file, or containerfile."""
+
+    content: str | None = Field(default=None, description="The file's full text.")
+    checksum: list[Checksum] | None = Field(default=None, description="Checksums of the file.")
+    url: str | None = Field(default=None, description="Where the raw file can be fetched from.")
+
+
+class ToolFile(BaseModel):
+    """One entry in the file listing of a TRS tool version."""
+
+    path: str | None = Field(
+        default=None,
+        description="Path relative to the primary descriptor; pass this to get_tool_descriptor_by_path.",
+    )
+    file_type: str | None = Field(
+        default=None,
+        description="One of TEST_FILE, PRIMARY_DESCRIPTOR, SECONDARY_DESCRIPTOR, CONTAINERFILE, or OTHER.",
+    )
+    checksum: Checksum | None = Field(default=None, description="Checksum of the file.")
+
+
+class ToolVersionWithFiles(ToolVersion):
+    """One version of a GA4GH TRS tool, optionally with its file listing."""
+
+    files: list[ToolFile] | None = Field(
+        default=None, description="Every file of this version in the requested descriptor language, if asked for."
+    )
+    files_error: str | None = Field(
+        default=None, description="Why the file listing could not be fetched, if it was asked for and failed."
+    )
 
 
 class EntryField(StrEnum):

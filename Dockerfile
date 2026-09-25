@@ -33,6 +33,10 @@ RUN pip install . \
 # ---- runtime --------------------------------------------------------------
 FROM python:3.13-alpine3.24
 
+# Git tag or ref the image is built from, reported in the User-Agent sent to
+# Dockstore. Left empty, the server falls back to the package version.
+ARG GIT_REF=""
+
 LABEL org.opencontainers.image.title="dockstore-mcp" \
       org.opencontainers.image.description="Model Context Protocol server for Dockstore" \
       org.opencontainers.image.url="https://dockstore.org" \
@@ -56,7 +60,8 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     DOCKSTORE_MCP_HOST=0.0.0.0 \
     DOCKSTORE_MCP_PORT=8000 \
     DOCKSTORE_MCP_PATH=/mcp \
-    DOCKSTORE_MCP_DOCKSTORE_URL=https://dockstore.org
+    DOCKSTORE_MCP_DOCKSTORE_URL=https://dockstore.org \
+    DOCKSTORE_MCP_GIT_REF=${GIT_REF}
 
 USER dockstore
 WORKDIR /home/dockstore
