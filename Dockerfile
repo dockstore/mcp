@@ -13,7 +13,7 @@
 #    limitations under the License.
 
 # ---- build ----------------------------------------------------------------
-FROM python:3.13-slim-bookworm AS builder
+FROM python:3.13-alpine3.24 AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -25,10 +25,13 @@ ENV PATH="/opt/venv/bin:${PATH}"
 
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
-RUN pip install .
+# pip is only needed to build the venv; its vendored copies of msgpack and
+# setuptools otherwise show up as CVEs in the runtime image.
+RUN pip install . \
+    && pip uninstall -y pip
 
 # ---- runtime --------------------------------------------------------------
-FROM python:3.13-slim-bookworm
+FROM python:3.13-alpine3.24
 
 # Git tag or ref the image is built from, reported in the User-Agent sent to
 # Dockstore. Left empty, the server falls back to the package version.
@@ -41,10 +44,9 @@ LABEL org.opencontainers.image.title="dockstore-mcp" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.vendor="OICR and UCSC"
 
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --create-home --uid 10001 --shell /usr/sbin/nologin dockstore
+RUN apk upgrade --no-cache \
+    && python -m pip uninstall -y pip \
+    && adduser -D -u 10001 -s /sbin/nologin dockstore
 
 COPY --from=builder /opt/venv /opt/venv
 
