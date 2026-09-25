@@ -60,7 +60,8 @@ PR; leave it unchecked otherwise.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and every PR: a lint/typecheck/test
+GitHub Actions (`.github/workflows/ci.yml`) runs on every PR, and on every push to `develop` or a tag via
+`deploy_tagged.yml`, which calls it and publishes the quay.io image only once it passes: a lint/typecheck/test
 matrix across Python 3.11–3.14, a `git secrets --scan` over the whole repository, and a Docker image build with a
 smoke test against `/health`. `make check` runs the equivalent lint/typecheck/test steps locally before pushing.
 
