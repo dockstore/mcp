@@ -37,7 +37,6 @@ from dockstore_mcp.models import (
     FileWrapper,
     Tool,
     ToolClass,
-    ToolDetail,
     ToolFile,
     ToolPage,
     ToolSummary,
@@ -99,12 +98,19 @@ def _segment(value: str) -> str:
 
 def _summarize(tool: Tool) -> ToolSummary:
     """Reduce ``tool`` to a :class:`ToolSummary`, shortening its description and version list."""
-    versions = tool.versions or []
+    versions: list[ToolVersion | ToolVersionSummary] = list(tool.versions or [])
     # Production-ready versions first; sorted() is stable, so the rest keep Dockstore's order.
     version_names = [
         version.name for version in sorted(versions, key=lambda version: not version.is_production) if version.name
     ]
-    descriptor_types = sorted({language for version in versions for language in version.descriptor_type or []})
+    descriptor_types = sorted(
+        {
+            language
+            for version in versions
+            if isinstance(version, ToolVersion)
+            for language in version.descriptor_type or []
+        }
+    )
     description = " ".join((tool.description or "").split()) or None
     if description and len(description) > SUMMARY_DESCRIPTION_LENGTH:
         description = description[: SUMMARY_DESCRIPTION_LENGTH - 1].rstrip() + "…"
@@ -283,7 +289,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
                 )
             ),
         ] = False,
-    ) -> ToolDetail:
+    ) -> Tool:
         """Retrieve one tool or workflow by its TRS id, including every one of its versions.
 
         Each version's ``name`` is what the version tools take as ``version_id``, and
@@ -297,10 +303,11 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             The tool's metadata and every one of its versions, in full or (if ``summary``) summarized.
         """
         tool = Tool.model_validate(await get_json(f"/tools/{_segment(tool_id)}"))
-        versions: list[ToolVersion] | list[ToolVersionSummary] | None = tool.versions
         if summary and tool.versions is not None:
-            versions = [ToolVersionSummary.model_validate(version, from_attributes=True) for version in tool.versions]
-        return ToolDetail.model_validate({**dict(tool), "versions": versions})
+            tool.versions = [
+                ToolVersionSummary.model_validate(version, from_attributes=True) for version in tool.versions
+            ]
+        return tool
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def get_tool_version(

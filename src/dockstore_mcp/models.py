@@ -44,7 +44,6 @@ __all__ = [
     "SortOrder",
     "Tool",
     "ToolClass",
-    "ToolDetail",
     "ToolFile",
     "ToolPage",
     "ToolSummary",
@@ -303,8 +302,8 @@ class ToolVersionSummary(BaseModel):
     is_production: bool | None = Field(default=None, description="Whether the version is marked production-ready.")
 
 
-class _ToolBase(BaseModel):
-    """The fields of a GA4GH TRS tool other than its versions, shared by :class:`Tool` and :class:`ToolDetail`."""
+class Tool(BaseModel):
+    """A GA4GH TRS tool: a Dockstore tool, workflow, or other entry as the TRS API describes it."""
 
     id: str | None = Field(default=None, description="TRS identifier of the tool; pass this as tool_id.")
     url: str | None = Field(default=None, description="TRS API URL of the tool.")
@@ -316,19 +315,13 @@ class _ToolBase(BaseModel):
     meta_version: str | None = Field(default=None, description="Revision of this tool's metadata.")
     has_checker: bool | None = Field(default=None, description="Whether the tool has a checker workflow.")
     checker_url: str | None = Field(default=None, description="TRS URL of the checker workflow, if any.")
-
-
-class Tool(_ToolBase):
-    """A GA4GH TRS tool: a Dockstore tool, workflow, or other entry as the TRS API describes it."""
-
-    versions: list[ToolVersion] | None = Field(default=None, description="Every version of the tool.")
-
-
-class ToolDetail(_ToolBase):
-    """A GA4GH TRS tool as get_tool returns it, with every version in full or summarized."""
-
+    # Parsed from the TRS API, versions are always in full: every ToolVersion field is
+    # optional, so left_to_right always picks it. Only get_tool(summary=True) swaps in
+    # summaries.
     versions: list[ToolVersion] | list[ToolVersionSummary] | None = Field(
-        default=None, description="Every version of the tool, in full or (if summarized) just its name and status."
+        default=None,
+        union_mode="left_to_right",
+        description="Every version of the tool, in full or (if summarized) just its name and status.",
     )
 
 
