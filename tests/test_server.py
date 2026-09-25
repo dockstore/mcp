@@ -35,7 +35,6 @@ async def test_every_tool_is_advertised(client: Client[Any]) -> None:
         "list_tool_versions",
         "list_tools",
         "search_entries",
-        "search_tools",
     ]
 
 

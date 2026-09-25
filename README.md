@@ -130,8 +130,7 @@ the full list.
 | Tool                          | Description                                                                          |
 | ----------------------------- | ------------------------------------------------------------------------------------ |
 | `get_trs_info`                | Reports instance and version; unless `local_only`, also TRS info and tool classes.   |
-| `list_tools`                  | Lists one page of every tool and workflow the TRS API serves, with the total count.  |
-| `search_tools`                | Finds TRS tools by name, organization, author, class, descriptor language, etc.      |
+| `list_tools`                  | Lists one page of TRS tools, optionally filtered by name, class, language, etc.      |
 | `get_tool`                    | Retrieves one TRS tool by id, including all of its versions.                         |
 | `list_tool_versions`          | Lists every version of one TRS tool.                                                 |
 | `get_tool_version`            | Retrieves one version of a TRS tool: authors, images, languages, optionally files.   |
@@ -142,9 +141,9 @@ the full list.
 | `get_file`                    | Retrieves the requested fields of one file belonging to a version.                   |
 
 The TRS tools, from `get_trs_info` to `get_tool_descriptor_by_path`, call Dockstore's GA4GH
-TRS V2 API directly. They form a chain: `list_tools` and `search_tools` yield tool ids, a
+TRS V2 API directly. They form a chain: `list_tools` yields tool ids, a
 tool yields version names, and `get_tool_version` with `files` yields the paths that
-`get_tool_descriptor_by_path` takes. Pass `summary` to `list_tools` or `search_tools` to get
+`get_tool_descriptor_by_path` takes. Pass `summary` to `list_tools` to get
 each tool's id, languages, and version names without its full README and version details.
 
 The last four are scaffolding and are not implemented yet. They are a chain too:

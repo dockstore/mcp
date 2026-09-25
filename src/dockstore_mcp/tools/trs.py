@@ -17,7 +17,7 @@ registers, and the tools, versions, and files themselves.
 Unlike the tools in ``entries.py`` and ``search.py``, these are wired up to the real
 Dockstore API: every one is an unauthenticated GET against the TRS V2 API.
 
-The lookups form a chain: ``list_tools``/``search_tools`` yield tool ids,
+The lookups form a chain: ``list_tools`` yields tool ids,
 ``get_tool``/``list_tool_versions`` yield version names, and ``get_tool_version``'s
 file listing yields the paths ``get_tool_descriptor_by_path`` takes.
 """
@@ -52,7 +52,7 @@ __all__ = ["register"]
 #: How long to wait for the Dockstore TRS API to respond.
 REQUEST_TIMEOUT = 30.0
 
-#: How many tools list_tools and search_tools return per page unless asked for more.
+#: How many tools list_tools returns per page unless asked for more.
 #: The TRS default of 1000 would flood a model's context: every tool carries all of
 #: its versions.
 DEFAULT_PAGE_SIZE = 20
@@ -66,7 +66,7 @@ SUMMARY_VERSION_LIMIT = 10
 
 ToolId = Annotated[
     str,
-    Field(description="TRS tool id, e.g. '#workflow/github.com/org/repo/name', as list_tools or search_tools give."),
+    Field(description="TRS tool id, e.g. '#workflow/github.com/org/repo/name', as list_tools gives."),
 ]
 VersionId = Annotated[str, Field(description="Version name, e.g. 'master' or '1.0', as list_tool_versions gives.")]
 DescriptorType = Annotated[TrsDescriptorType, Field(description="Descriptor language of the files to fetch.")]
@@ -198,7 +198,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         Use this to identify which Dockstore instance a server is talking to, which
         version of the TRS API it implements, and who operates it, and to see which
         tool classes (for example 'Workflow' or 'CommandLineTool') it sorts entries
-        into, e.g. before filtering search_tools by one. It always describes the
+        into, e.g. before filtering list_tools by one. It always describes the
         ``dockstore_url`` this server is configured with. Pass ``local_only`` to
         confirm the server is reachable and configured without calling Dockstore.
 
@@ -216,23 +216,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return info
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def list_tools(limit: Limit = DEFAULT_PAGE_SIZE, offset: Offset = 0, summary: Summary = False) -> ToolPage:
-        """List one page of every tool and workflow this Dockstore instance's TRS API serves.
-
-        Reach for search_tools instead to narrow the list by name, language, class,
-        or other filters; this one pages through everything. The page's ``total``
-        says how many tools there are in all, so to count them, ask for one page
-        with ``limit`` 1. Fetch the next page by passing ``next_offset`` as
-        ``offset`` (a page number, not an item index); it is unset on the last page.
-
-        Returns:
-            Up to ``limit`` tools, each with all of its versions (or summarized, if ``summary``), plus the
-            total and next page's offset.
-        """
-        return await get_tool_page({}, limit, offset, summary)
-
-    @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def search_tools(
+    async def list_tools(
         name: Annotated[str | None, Field(description="Match against the tool's repository path, e.g. 'gatk'.")] = None,
         toolname: Annotated[str | None, Field(description="Match against the tool or workflow's own name.")] = None,
         description: Annotated[str | None, Field(description="Match against the tool's description.")] = None,
@@ -257,11 +241,15 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         offset: Offset = 0,
         summary: Summary = False,
     ) -> ToolPage:
-        """Find tools and workflows through the TRS API by name, language, class, and other filters.
+        """List one page of the tools and workflows this Dockstore instance's TRS API serves, optionally filtered.
 
-        Every filter given must match; text filters match substrings. Page through
-        the results, or count them, as with list_tools. For richer keyword search
-        with facets, the Dockstore Search page equivalent is search_entries.
+        With no filters this pages through everything; narrow it by name, language,
+        class, and other filters. Every filter given must match; text filters match
+        substrings. The page's ``total`` says how many tools match in all, so to
+        count them, ask for one page with ``limit`` 1. Fetch the next page by passing
+        ``next_offset`` as ``offset`` (a page number, not an item index); it is unset
+        on the last page. For richer keyword search with facets, the Dockstore
+        Search page equivalent is search_entries.
 
         Returns:
             Up to ``limit`` matching tools, each with all of its versions (or summarized, if ``summary``), plus

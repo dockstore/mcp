@@ -228,7 +228,7 @@ class TrsInfo(BaseModel):
     updated_at: datetime | None = Field(default=None, description="When the service was last updated.")
     tool_classes: list["ToolClass"] = Field(
         default_factory=list,
-        description="Every tool class (e.g. 'Workflow') the service sorts entries into; search_tools filters by these.",
+        description="Every tool class (e.g. 'Workflow') the service sorts entries into; list_tools filters by these.",
     )
 
 

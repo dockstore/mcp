@@ -303,9 +303,9 @@ async def test_summary_caps_version_names(client: Client[Any], _mock_trs_api: di
     assert (summary["version_count"], summary["versions_truncated"]) == (30, True)
 
 
-async def test_search_tools_summarizes(client: Client[Any]) -> None:
+async def test_list_tools_filters_and_summarizes(client: Client[Any]) -> None:
     async with client:
-        result = await client.call_tool("search_tools", {"toolname": "name", "summary": True, "limit": 5})
+        result = await client.call_tool("list_tools", {"toolname": "name", "summary": True, "limit": 5})
     page = result.structured_content
     assert page is not None
     assert [tool["id"] for tool in page["tools"]] == [tool["id"] for tool in CATALOG[:5]]
@@ -326,10 +326,10 @@ async def test_list_tools_defaults_to_a_small_page(client: Client[Any], requests
     assert dict(requests_made[0].url.params) == {"limit": "20", "offset": "0"}
 
 
-async def test_search_tools_sends_only_given_filters(client: Client[Any], requests_made: list[httpx.Request]) -> None:
+async def test_list_tools_sends_only_given_filters(client: Client[Any], requests_made: list[httpx.Request]) -> None:
     async with client:
         result = await client.call_tool(
-            "search_tools",
+            "list_tools",
             {"toolname": "name", "tool_class": "Workflow", "descriptor_type": "NFL", "checker": False, "limit": 5},
         )
     assert result.data.total == 7
