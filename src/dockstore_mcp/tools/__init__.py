@@ -21,14 +21,13 @@ Dockstore surface area grows (TRS lookups, workflow search, and so on).
 from fastmcp import FastMCP
 
 from dockstore_mcp.config import Settings
-from dockstore_mcp.tools import entries, hello, search, trs
+from dockstore_mcp.tools import entries, search, trs
 
 __all__ = ["register_all"]
 
 
 def register_all(mcp: FastMCP, settings: Settings) -> None:
     """Register every tool this server provides."""
-    hello.register(mcp, settings)
     search.register(mcp, settings)
     entries.register(mcp, settings)
     trs.register(mcp, settings)

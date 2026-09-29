@@ -11,7 +11,7 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
-"""Tests for server construction and the hello tool."""
+"""Tests for server construction."""
 
 from typing import Any
 
@@ -19,6 +19,8 @@ from fastmcp import Client, FastMCP
 from starlette.testclient import TestClient
 
 from dockstore_mcp import __version__
+from dockstore_mcp.config import Settings
+from dockstore_mcp.server import create_server
 
 
 async def test_every_tool_is_advertised(client: Client[Any]) -> None:
@@ -27,26 +29,14 @@ async def test_every_tool_is_advertised(client: Client[Any]) -> None:
     assert sorted(tool.name for tool in tools) == [
         "get_entry",
         "get_file",
+        "get_tool",
+        "get_tool_descriptor_by_path",
+        "get_tool_version",
         "get_trs_info",
         "get_version",
-        "hello",
-        "list_tool_classes",
+        "list_tools",
         "search_entries",
     ]
-
-
-async def test_hello_greets_by_name(client: Client[Any]) -> None:
-    async with client:
-        result = await client.call_tool("hello", {"name": "Dockstore"})
-    assert result.data.greeting == "Hello, Dockstore!"
-    assert result.data.dockstore_url == "https://staging.dockstore.org"
-    assert result.data.server_version == __version__
-
-
-async def test_hello_has_a_default_name(client: Client[Any]) -> None:
-    async with client:
-        result = await client.call_tool("hello", {})
-    assert result.data.greeting == "Hello, world!"
 
 
 def test_health_endpoint(server: FastMCP) -> None:
@@ -54,3 +44,14 @@ def test_health_endpoint(server: FastMCP) -> None:
         response = http.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "version": __version__}
+
+
+async def test_every_version_reports_the_git_ref(settings: Settings) -> None:
+    server = create_server(settings.model_copy(update={"git_ref": "0.1-alpha.4"}))
+    with TestClient(server.http_app()) as http:
+        assert http.get("/health").json()["version"] == "0.1-alpha.4"
+    async with Client(server) as client:
+        assert client.server_info is not None
+        assert client.server_info.version == "0.1-alpha.4"
+        result = await client.call_tool("get_trs_info", {"local_only": True})
+    assert result.data.server_version == "0.1-alpha.4"
