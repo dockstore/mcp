@@ -35,15 +35,15 @@ from dockstore_mcp.casing import normalize_keys
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import (
     FileWrapper,
+    PageOfTools,
     Tool,
     ToolClass,
-    ToolDetail,
     ToolFile,
-    ToolPage,
     ToolSummary,
     ToolVersion,
     ToolVersionSummary,
     ToolVersionWithFiles,
+    ToolWithPageOfVersions,
     TrsDescriptorType,
     TrsInfo,
 )
@@ -164,7 +164,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         """
         return (await get(path, params)).json()
 
-    async def get_tool_page(filters: dict[str, Any], limit: int, offset: int, summary: bool) -> ToolPage:
+    async def get_page_of_tools(filters: dict[str, Any], limit: int, offset: int, summary: bool) -> PageOfTools:
         """Fetch one page of ``/tools`` matching ``filters``, and work out the total across every page.
 
         Dockstore reports the last page's offset in a ``last_page`` header but no
@@ -184,7 +184,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
                 last_page_size = len(last_page)
             total = last_offset * limit + last_page_size
         more = total is not None and (offset + 1) * limit < total
-        return ToolPage(
+        return PageOfTools(
             tools=[_summarize(tool) for tool in tools] if summary else tools,
             offset=offset,
             limit=limit,
@@ -254,7 +254,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         limit: Limit = DEFAULT_PAGE_SIZE,
         offset: Offset = 0,
         summary: Summary = False,
-    ) -> ToolPage:
+    ) -> PageOfTools:
         """List one page of the tools and workflows this Dockstore instance's TRS API serves, optionally filtered.
 
         With no filters this pages through everything; narrow it by name, language,
@@ -282,7 +282,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             "checker": None if checker is None else str(checker).lower(),
         }
         params = {key: value for key, value in filters.items() if value is not None}
-        return await get_tool_page(params, limit, offset, summary)
+        return await get_page_of_tools(params, limit, offset, summary)
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def get_tool(
@@ -298,7 +298,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         ] = False,
         version_limit: VersionLimit = DEFAULT_VERSION_PAGE_SIZE,
         version_offset: Offset = 0,
-    ) -> ToolDetail:
+    ) -> ToolWithPageOfVersions:
         """Retrieve one tool or workflow by its TRS id, with one page of its versions.
 
         Each version's ``name`` is what the version tools take as ``version_id``, and
@@ -324,7 +324,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         if "current_limit" not in response.headers:
             # Dockstore before SEAB-7771 ignores limit and offset and returns every version.
             raise ToolError(f"{settings.dockstore_url} does not page tool versions, so get_tool cannot list them.")
-        tool = ToolDetail.model_validate(
+        tool = ToolWithPageOfVersions.model_validate(
             {
                 **data,
                 "versions": response.json(),

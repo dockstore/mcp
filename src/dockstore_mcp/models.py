@@ -38,19 +38,19 @@ __all__ = [
     "FileField",
     "FileWrapper",
     "ImageData",
+    "PageOfTools",
     "ServiceOrganization",
     "ServiceType",
     "SortBy",
     "SortOrder",
     "Tool",
     "ToolClass",
-    "ToolDetail",
     "ToolFile",
-    "ToolPage",
     "ToolSummary",
     "ToolVersion",
     "ToolVersionSummary",
     "ToolVersionWithFiles",
+    "ToolWithPageOfVersions",
     "TrsDescriptorType",
     "TrsInfo",
     "Version",
@@ -328,7 +328,7 @@ class Tool(BaseModel):
     )
 
 
-class ToolDetail(Tool):
+class ToolWithPageOfVersions(Tool):
     """A GA4GH TRS tool with one page of its versions, as get_tool returns it."""
 
     versions: list[ToolVersion] | list[ToolVersionSummary] | None = Field(
@@ -367,7 +367,7 @@ class ToolSummary(BaseModel):
     description: str | None = Field(default=None, description="The start of the tool's description, shortened.")
 
 
-class ToolPage(BaseModel):
+class PageOfTools(BaseModel):
     """One page of TRS tools, with enough context to fetch the rest."""
 
     tools: list[Tool] | list[ToolSummary] = Field(
