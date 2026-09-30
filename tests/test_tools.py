@@ -160,7 +160,6 @@ async def test_get_entry_summarizes_a_workflow(client: Client[Any]) -> None:
     assert entry.descriptor_type == DescriptorLanguage.GALAXY
     assert entry.name == "COVID-19-ARTIC-ILLUMINA"
     assert entry.organization == "iwc-workflows"
-    assert entry.path == ("github.com/iwc-workflows/sars-cov-2-variant-calling/COVID-19-ARTIC-ILLUMINA")
     assert entry.authors == ["IWC"]  # The author with no name is dropped.
     assert entry.default_version is not None
     assert (entry.default_version.id, entry.default_version.name) == ("117123", "v0.5.2")
@@ -254,7 +253,6 @@ async def test_get_entry_finds_a_tool_too(client: Client[Any]) -> None:
     entry = await _get_entry(client, entry_id="188")
     assert entry.entry_type == EntryType.TOOL
     assert entry.name == "pcawg-dkfz-workflow"
-    assert entry.path == "quay.io/pancancer/pcawg-dkfz-workflow"
     assert entry.registry == "quay.io"
     assert entry.url == "https://staging.dockstore.org/containers/quay.io/pancancer/pcawg-dkfz-workflow"
 

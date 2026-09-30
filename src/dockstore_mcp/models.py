@@ -147,7 +147,6 @@ class Entry(BaseModel):
     )
     name: str | None = Field(default=None, description="Display name of the entry.")
     organization: str | None = Field(default=None, description="Organization the entry belongs to.")
-    path: str | None = Field(default=None, description="Full Dockstore path of the entry.")
     trs_id: str | None = Field(default=None, description="GA4GH TRS identifier, for use against the TRS API.")
     topic: str | None = Field(default=None, description="One-line description of what the entry does.")
     description: str | None = Field(

@@ -221,7 +221,6 @@ def _to_entry(
         "descriptor_type": _descriptor_type(payload.get("descriptorType")),
         "name": _first_of(payload, "workflowName", "toolname", "repository", "name"),
         "organization": _first_of(payload, "organization", "namespace"),
-        "path": _first_of(payload, "full_workflow_path", "tool_path", "path"),
         "trs_id": payload.get("trsId"),
         "topic": payload.get("topic"),
         "description": _truncate(description, SUMMARY_DESCRIPTION_LIMIT) if summarize else description,
