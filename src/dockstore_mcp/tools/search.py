@@ -18,6 +18,7 @@ TRS extension that passes a query through to it verbatim.  The index holds one
 document per published tool, workflow, and notebook; services are not indexed.
 """
 
+import json
 import logging
 import re
 from typing import Annotated, Any
@@ -213,18 +214,19 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
             entry_type=entry_type,
             descriptor_type=descriptor_type,
             facets={
-                "all_authors.name": author,
-                "input-data.displayName": input_data,
-                "input-format.displayName": input_format,
-                "output-data.displayName": output_data,
-                "output-format.displayName": output_format,
-                "operation.displayName": operation,
-                "topic.displayName": subject_area,
+                ("all_authors.name",): author,
+                _category_fields("input-data"): input_data,
+                _category_fields("input-format"): input_format,
+                _category_fields("output-data"): output_data,
+                _category_fields("output-format"): output_format,
+                _category_fields("operation"): operation,
+                _category_fields("topic"): subject_area,
             },
             sort_by=sort_by,
             sort_order=sort_order or _NATURAL_ORDER[sort_by],
             limit=limit,
         )
+        logger.debug("Elasticsearch query: %s", json.dumps(body))
         try:
             response = await api.post_object(SEARCH_PATH, body)
         except BadRequestError as error:
@@ -235,12 +237,17 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         return _to_results(response)
 
 
+def _category_fields(facet: str) -> tuple[str, ...]:
+    """The fields of ``facet`` that a facet argument is matched against: a category's name and its description."""
+    return (f"{facet}.displayName", f"{facet}.topic")
+
+
 def _query(
     query: str | None,
     *,
     entry_type: EntryType | None,
     descriptor_type: DescriptorLanguage | None,
-    facets: dict[str, str | None],
+    facets: dict[tuple[str, ...], str | None],
     sort_by: SortBy,
     sort_order: SortOrder,
     limit: int,
@@ -256,8 +263,8 @@ def _query(
         # A tool lists every language it has a descriptor in; a term matches any of them.
         filters.append({"term": {"descriptorType": descriptor_type.value}})
     filters.extend(
-        {"query_string": {"query": _escape_slashes(value), "default_field": field, "default_operator": "AND"}}
-        for field, value in facets.items()
+        {"query_string": {"query": _escape_slashes(value), "fields": list(fields), "default_operator": "AND"}}
+        for fields, value in facets.items()
         if value and value.strip()
     )
 

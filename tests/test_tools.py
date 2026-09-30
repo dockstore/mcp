@@ -403,15 +403,15 @@ async def test_search_turns_each_facet_into_a_filter(client: Client[Any], dockst
         {"term": {"entryTypeMetadata.type.keyword": "WORKFLOW"}},
         {"term": {"descriptorType": "WDL"}},
         *(
-            {"query_string": {"query": value, "default_field": field, "default_operator": "AND"}}
-            for field, value in [
-                ("all_authors.name", "Jane Doe"),
-                ("input-data.displayName", "Short-read sequencing data"),
-                ("input-format.displayName", "FASTQ"),
-                ("output-data.displayName", "Variant call data"),
-                ("output-format.displayName", "VCF"),
-                ("operation.displayName", "Variant calling"),
-                ("topic.displayName", "Genomics"),
+            {"query_string": {"query": value, "fields": fields, "default_operator": "AND"}}
+            for fields, value in [
+                (["all_authors.name"], "Jane Doe"),
+                (["input-data.displayName", "input-data.topic"], "Short-read sequencing data"),
+                (["input-format.displayName", "input-format.topic"], "FASTQ"),
+                (["output-data.displayName", "output-data.topic"], "Variant call data"),
+                (["output-format.displayName", "output-format.topic"], "VCF"),
+                (["operation.displayName", "operation.topic"], "Variant calling"),
+                (["topic.displayName", "topic.topic"], "Genomics"),
             ]
         ),
     ]
