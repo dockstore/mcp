@@ -115,8 +115,8 @@ async def test_search_arguments_have_sane_defaults(client: Client[Any]) -> None:
     properties = (await _schema(client, "search_entries"))["properties"]
     assert properties["sort_by"]["default"] == "relevance"
     assert properties["sort_order"]["default"] is None
-    assert properties["limit"]["default"] == 10
-    assert properties["limit"]["maximum"] == 100
+    assert properties["limit"]["default"] == 20
+    assert properties["limit"]["maximum"] == 200
 
 
 @pytest.mark.parametrize(
@@ -426,7 +426,7 @@ async def test_search_ids_lead_to_get_entry(client: Client[Any], dockstore: Fake
 async def test_search_posts_to_the_search_endpoint(client: Client[Any], dockstore: FakeDockstore) -> None:
     _, body = await _search(client, dockstore)
     assert dockstore.paths() == ["/api/api/ga4gh/v2/extended/tools/entry/_search"]
-    assert body["size"] == 10
+    assert body["size"] == 20
     assert body["track_total_hits"] is True
 
 
@@ -626,11 +626,11 @@ async def test_search_can_put_the_worst_match_first(
 
 
 async def test_search_returns_as_many_as_asked_for(client: Client[Any], dockstore: FakeDockstore) -> None:
-    _, body = await _search(client, dockstore, limit=100)
-    assert body["size"] == 100
+    _, body = await _search(client, dockstore, limit=200)
+    assert body["size"] == 200
 
 
-@pytest.mark.parametrize("limit", [0, 101])
+@pytest.mark.parametrize("limit", [0, 201])
 async def test_search_refuses_an_unreasonable_limit(client: Client[Any], dockstore: FakeDockstore, limit: int) -> None:
     async with client:
         with pytest.raises(ToolError):

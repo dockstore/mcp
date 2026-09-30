@@ -148,7 +148,7 @@ input and output data and formats) are filters. Keywords, author, and EDAM facet
 written in Lucene query syntax and sent as `query_string` queries. Results can be sorted by relevance
 (with keywords, the square of the Elasticsearch score times the natural log of 1.05 plus the entry's
 indexed `relevance`),
-name, stars, or last update, and a call returns up to 100 of them (ten by default)
+name, stars, or last update, and a call returns up to 200 of them (20 by default)
 along with the total number that matched. Each result carries the entry's categories and
 EDAM facets as the index files them, so they cost no extra request. Services are not indexed, so they cannot be
 searched for.

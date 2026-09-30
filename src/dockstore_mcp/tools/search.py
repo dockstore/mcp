@@ -40,10 +40,10 @@ logger = logging.getLogger(__name__)
 SEARCH_PATH = "/api/ga4gh/v2/extended/tools/entry/_search"
 
 #: How many results a caller gets when they do not ask for a particular number.
-DEFAULT_LIMIT = 10
+DEFAULT_LIMIT = 20
 
 #: The most results one call will return, to keep a response readable.
-MAX_LIMIT = 100
+MAX_LIMIT = 200
 
 #: The indexed field each way of sorting orders by.  Relevance is absent because
 #: it means different things with and without keywords; see :func:`_sort`.
@@ -203,7 +203,7 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
                 or, with no ``query``, how relevant Dockstore considers it alone.
             sort_order: Which direction to order the results in. Defaults to
                 alphabetical for ``name`` and largest or newest first for the rest.
-            limit: How many entries to return, at most 100.
+            limit: How many entries to return, at most 200.
 
         Returns:
             Matching entries in the order asked for, with enough metadata to tell them
