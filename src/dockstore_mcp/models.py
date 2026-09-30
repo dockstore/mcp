@@ -29,7 +29,6 @@ from pydantic import BaseModel, Field, SerializerFunctionWrapHandler, model_seri
 __all__ = [
     "DescriptorLanguage",
     "Entry",
-    "EntryField",
     "EntrySummary",
     "EntryType",
     "File",
@@ -134,11 +133,11 @@ class _Sparse(BaseModel):
         return {name: value for name, value in handler(self).items() if name in self.model_fields_set}
 
 
-class Entry(_Sparse):
+class Entry(BaseModel):
     """A Dockstore entry.
 
-    Every field is optional: a response carries only the fields the caller asked
-    for, and leaves the rest out.
+    Every field is optional, since Dockstore does not fill in every one for every
+    kind of entry.
     """
 
     id: str | None = Field(default=None, description="Dockstore identifier for the entry.")
@@ -151,7 +150,9 @@ class Entry(_Sparse):
     path: str | None = Field(default=None, description="Full Dockstore path of the entry.")
     trs_id: str | None = Field(default=None, description="GA4GH TRS identifier, for use against the TRS API.")
     topic: str | None = Field(default=None, description="One-line description of what the entry does.")
-    description: str | None = Field(default=None, description="Long description, usually the README.")
+    description: str | None = Field(
+        default=None, description="Long description, usually the README; cut short when summarized."
+    )
     authors: list[str] | None = Field(default=None, description="Authors credited on the entry.")
     labels: list[str] | None = Field(default=None, description="Free-form labels applied to the entry.")
     categories: list[str] | None = Field(default=None, description="Categories the entry has been placed in.")
@@ -168,7 +169,8 @@ class Entry(_Sparse):
     star_count: int | None = Field(default=None, description="How many users have starred the entry.")
     default_version: VersionSummary | None = Field(default=None, description="The version served by default.")
     versions: list[VersionSummary] | None = Field(
-        default=None, description="The entry's versions; pass a version's id to get_version."
+        default=None,
+        description="The entry's versions, only the most recent when summarized; pass a version's id to get_version.",
     )
     doi: str | None = Field(default=None, description="Concept DOI for the entry as a whole, if there is one.")
     created_at: datetime | None = Field(default=None, description="When the entry was registered.")
@@ -179,7 +181,8 @@ class Entry(_Sparse):
 class Version(_Sparse):
     """One version of a Dockstore entry.
 
-    Every field is optional, for the same reason as on :class:`Entry`.
+    Every field is optional: a response carries only the fields the caller asked
+    for, and leaves the rest out.
     """
 
     id: str | None = Field(default=None, description="Dockstore identifier for the version.")
@@ -213,40 +216,6 @@ class File(_Sparse):
     content: str | None = Field(default=None, description="Contents of the file.")
     checksums: dict[str, str] | None = Field(default=None, description="Checksums of the content, keyed by algorithm.")
     url: str | None = Field(default=None, description="Address the file can be fetched from.")
-
-
-class EntryField(StrEnum):
-    """Fields of an :class:`Entry` that get_entry can return."""
-
-    ID = "id"
-    ENTRY_TYPE = "entry_type"
-    DESCRIPTOR_TYPE = "descriptor_type"
-    NAME = "name"
-    ORGANIZATION = "organization"
-    PATH = "path"
-    TRS_ID = "trs_id"
-    TOPIC = "topic"
-    DESCRIPTION = "description"
-    AUTHORS = "authors"
-    LABELS = "labels"
-    CATEGORIES = "categories"
-    SUBJECT_AREAS = "subject_areas"
-    OPERATIONS = "operations"
-    INPUT_FORMATS = "input_formats"
-    OUTPUT_FORMATS = "output_formats"
-    INPUT_DATA = "input_data"
-    OUTPUT_DATA = "output_data"
-    REGISTRY = "registry"
-    SOURCE_CONTROL = "source_control"
-    IS_PUBLISHED = "is_published"
-    IS_VERIFIED = "is_verified"
-    STAR_COUNT = "star_count"
-    DEFAULT_VERSION = "default_version"
-    VERSIONS = "versions"
-    DOI = "doi"
-    CREATED_AT = "created_at"
-    UPDATED_AT = "updated_at"
-    URL = "url"
 
 
 class VersionField(StrEnum):

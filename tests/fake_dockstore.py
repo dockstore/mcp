@@ -232,6 +232,9 @@ class FakeDockstore:
         #: What the search endpoint answers with, which a test can replace.
         self.search_response: Any = SEARCH_HITS
         self.search_status = 200
+        #: What the workflow endpoint answers with, which a test can replace.
+        self.workflow: dict[str, Any] = WORKFLOW
+        self.workflow_versions: list[dict[str, Any]] = WORKFLOW_VERSIONS
 
     @property
     def transport(self) -> httpx2.MockTransport:
@@ -251,7 +254,7 @@ class FakeDockstore:
         wants_versions = request.url.params.get("include") == "versions"
         match request.url.path:
             case "/api/workflows/published/16247":
-                return self._entry(WORKFLOW, WORKFLOW_VERSIONS, wants_versions)
+                return self._entry(self.workflow, self.workflow_versions, wants_versions)
             case "/api/containers/published/188":
                 return self._entry(TOOL, TOOL_VERSIONS, wants_versions)
             case "/api/entries/16247/categories":

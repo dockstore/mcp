@@ -14,8 +14,10 @@
 """Lookups of a single entry, version, or file.
 
 The three tools here are a chain: an entry has versions, a version has files.
-Each takes a list of fields, so a caller can ask for a name and a date without
-also pulling down a README or the contents of a descriptor.
+``get_entry`` summarizes by default, trimming an entry's versions and README so
+that a caller does not pull down more than it needs to decide what to read next.
+The other two take a list of fields, so a caller can ask for a name and a date
+without also pulling down the contents of a descriptor.
 
 TODO: ``get_version`` and ``get_file`` are still scaffolding and raise
 ``NotImplementedError`` until they are wired up to the Dockstore API.
@@ -24,7 +26,7 @@ TODO: ``get_version`` and ``get_file`` are still scaffolding and raise
 import logging
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
@@ -34,7 +36,6 @@ from dockstore_mcp.config import Settings
 from dockstore_mcp.models import (
     DescriptorLanguage,
     Entry,
-    EntryField,
     EntryType,
     File,
     FileField,
@@ -44,34 +45,23 @@ from dockstore_mcp.models import (
     VersionSummary,
 )
 
-__all__ = ["ALL_FIELDS", "DEFAULT_ENTRY_FIELDS", "DEFAULT_FILE_FIELDS", "DEFAULT_VERSION_FIELDS", "register"]
+__all__ = [
+    "DEFAULT_FILE_FIELDS",
+    "DEFAULT_VERSION_FIELDS",
+    "SUMMARY_DESCRIPTION_LIMIT",
+    "SUMMARY_VERSION_LIMIT",
+    "register",
+]
 
 logger = logging.getLogger(__name__)
 
-#: What get_entry returns when the caller does not name any fields: enough to
-#: identify the entry and to follow it to its versions, but no bulky text.
-DEFAULT_ENTRY_FIELDS = [
-    EntryField.ID,
-    EntryField.ENTRY_TYPE,
-    EntryField.DESCRIPTOR_TYPE,
-    EntryField.NAME,
-    EntryField.ORGANIZATION,
-    EntryField.PATH,
-    EntryField.TRS_ID,
-    EntryField.TOPIC,
-    EntryField.AUTHORS,
-    EntryField.CATEGORIES,
-    EntryField.SUBJECT_AREAS,
-    EntryField.OPERATIONS,
-    EntryField.INPUT_FORMATS,
-    EntryField.OUTPUT_FORMATS,
-    EntryField.INPUT_DATA,
-    EntryField.OUTPUT_DATA,
-    EntryField.DEFAULT_VERSION,
-    EntryField.CREATED_AT,
-    EntryField.UPDATED_AT,
-    EntryField.URL,
-]
+_EPOCH = datetime.fromtimestamp(0, tz=UTC)
+
+#: How many versions get_entry returns when summarizing: the most recently updated.
+SUMMARY_VERSION_LIMIT = 10
+
+#: How many characters of the description get_entry returns when summarizing.
+SUMMARY_DESCRIPTION_LIMIT = 5000
 
 #: What get_version returns when the caller does not name any fields.
 DEFAULT_VERSION_FIELDS = [
@@ -97,26 +87,6 @@ DEFAULT_FILE_FIELDS = [
     FileField.CONTENT,
 ]
 
-#: The value a caller puts in ``fields`` to ask for every field at once.
-ALL_FIELDS = "*"
-
-#: Fields that can only be answered from the entry's versions, which Dockstore
-#: leaves out of an entry unless they are asked for by name.
-_VERSION_BACKED = frozenset({EntryField.VERSIONS, EntryField.DEFAULT_VERSION, EntryField.IS_VERIFIED})
-
-#: Fields that come from the entry's categories, which are a second request.
-_CATEGORY_BACKED = frozenset(
-    {
-        EntryField.CATEGORIES,
-        EntryField.SUBJECT_AREAS,
-        EntryField.OPERATIONS,
-        EntryField.INPUT_FORMATS,
-        EntryField.OUTPUT_FORMATS,
-        EntryField.INPUT_DATA,
-        EntryField.OUTPUT_DATA,
-    }
-)
-
 #: Dockstore files an entry under automatic categories whose names say which
 #: facet they belong to, so one request for categories answers six of the
 #: fields above; anything else is a category a person curated.
@@ -134,7 +104,7 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
     """Add the entry, version, and file lookup tools to ``mcp``."""
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def get_entry(entry_id: str, fields: list[EntryField | Literal["*"]] | None = None) -> Entry:
+    async def get_entry(entry_id: str, summarize: bool = True) -> Entry:
         """Retrieve information about one Dockstore entry.
 
         Use this once you have an entry's identifier, which ``search_entries`` returns.
@@ -143,21 +113,18 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
 
         Args:
             entry_id: Dockstore identifier of the entry, as returned by ``search_entries``.
-            fields: Which fields to return. Ask only for what you need: ``description``
-                is often a whole README. Defaults to a summary of the entry; ``["*"]``
-                returns every field.
+            summarize: Whether to trim the entry to a summary: only the 10 most recently
+                updated ``versions``, and only the first 5,000 characters of the
+                ``description``, which is often a whole README. Pass false to get every
+                version and the full description.
 
         Returns:
-            The entry, with the requested fields populated and the rest left unset.
+            The entry.
         """
-        if fields and ALL_FIELDS in fields:
-            requested = frozenset(EntryField)
-        else:
-            requested = frozenset(EntryField(field) for field in fields or DEFAULT_ENTRY_FIELDS)
         identifier = _identifier(entry_id)
-        payload = await _fetch_entry(api, identifier, versions=bool(requested & _VERSION_BACKED))
-        categories = await _fetch_categories(api, identifier) if requested & _CATEGORY_BACKED else []
-        return _to_entry(payload, categories, requested, settings)
+        payload = await _fetch_entry(api, identifier)
+        categories = await _fetch_categories(api, identifier)
+        return _to_entry(payload, categories, settings, summarize=summarize)
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     def get_version(version_id: str, fields: list[VersionField] | None = None) -> Version:
@@ -210,9 +177,9 @@ def _identifier(entry_id: str) -> str:
     return identifier
 
 
-async def _fetch_entry(api: DockstoreApi, identifier: str, *, versions: bool) -> dict[str, Any]:
-    """Fetch a published entry, whichever kind of entry it turns out to be."""
-    params = {"include": "versions"} if versions else None
+async def _fetch_entry(api: DockstoreApi, identifier: str) -> dict[str, Any]:
+    """Fetch a published entry and its versions, whichever kind of entry it turns out to be."""
+    params = {"include": "versions"}
     # Workflows, notebooks, services, and apptools are all served by the workflows
     # endpoint; only tools live elsewhere, so that endpoint is the one to try second.
     for endpoint in (f"/workflows/published/{identifier}", f"/containers/published/{identifier}"):
@@ -238,13 +205,15 @@ async def _fetch_categories(api: DockstoreApi, identifier: str) -> list[Any]:
 def _to_entry(
     payload: dict[str, Any],
     categories: list[Any],
-    requested: frozenset[EntryField],
     settings: Settings,
+    *,
+    summarize: bool,
 ) -> Entry:
-    """Map a Dockstore entry payload onto the requested fields of an :class:`Entry`."""
+    """Map a Dockstore entry payload onto an :class:`Entry`, trimmed if ``summarize``."""
     facets = _facets(categories)
     versions = payload.get("workflowVersions")
     summaries = _versions(versions)
+    description = payload.get("description")
     starred = payload.get("starredUsers")
     values: dict[str, Any] = {
         "id": _text(payload.get("id")),
@@ -255,7 +224,7 @@ def _to_entry(
         "path": _first_of(payload, "full_workflow_path", "tool_path", "path"),
         "trs_id": payload.get("trsId"),
         "topic": payload.get("topic"),
-        "description": payload.get("description"),
+        "description": _truncate(description, SUMMARY_DESCRIPTION_LIMIT) if summarize else description,
         "authors": _values_of(payload.get("authors"), "name"),
         "labels": _values_of(payload.get("labels"), "value"),
         "categories": facets["categories"],
@@ -271,7 +240,7 @@ def _to_entry(
         "is_verified": any(version.get("verified") for version in versions) if versions is not None else None,
         "star_count": len(starred) if starred is not None else None,
         "default_version": _default_version(summaries, payload.get("defaultVersion")),
-        "versions": summaries,
+        "versions": _most_recent(summaries, SUMMARY_VERSION_LIMIT) if summarize else summaries,
         "doi": _doi(payload),
         "created_at": _timestamp(payload.get("dbCreateDate")),
         "updated_at": _timestamp(
@@ -279,7 +248,7 @@ def _to_entry(
         ),
         "url": _url(payload, settings),
     }
-    return Entry.model_validate({field.value: values[field.value] for field in requested})
+    return Entry.model_validate(values)
 
 
 def _facets(categories: Iterable[Any]) -> dict[str, list[str]]:
@@ -324,6 +293,21 @@ def _versions(versions: Any) -> list[VersionSummary] | None:
         for version in versions
         if isinstance(version, dict) and version.get("id") is not None
     ]
+
+
+def _most_recent(summaries: list[VersionSummary] | None, limit: int) -> list[VersionSummary] | None:
+    """Keep the ``limit`` most recently updated versions, newest first."""
+    if summaries is None or len(summaries) <= limit:
+        return summaries
+    # A version with no date sorts after every version with one.
+    return sorted(summaries, key=lambda summary: summary.updated_at or _EPOCH, reverse=True)[:limit]
+
+
+def _truncate(text: Any, limit: int) -> Any:
+    """Cut ``text`` down to ``limit`` characters, ending with an ellipsis if anything was cut."""
+    if not isinstance(text, str) or len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
 
 
 def _default_version(summaries: list[VersionSummary] | None, name: Any) -> VersionSummary | None:

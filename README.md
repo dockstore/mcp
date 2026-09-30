@@ -127,15 +127,17 @@ and does not check PyPI for updates on startup; see the
 | ---------------- | -------------------------------------------------------------------------------- |
 | `hello`          | Greets the caller and reports the Dockstore instance and server version. No I/O.  |
 | `search_entries` | Searches entries by keyword and facet, the equivalent of the site's Search page.  |
-| `get_entry`      | Retrieves the requested fields of one entry.                                      |
+| `get_entry`      | Retrieves one entry, summarized by default.                                       |
 | `get_version`    | Retrieves the requested fields of one version of an entry.                        |
 | `get_file`       | Retrieves the requested fields of one file belonging to a version.                |
 
 `get_version` and `get_file` are scaffolding and are not implemented yet. The four
 form a chain: `search_entries` yields entry identifiers, an entry yields
-its versions, and a version yields file paths. Each lookup takes a list of
-fields so that a caller can ask for a name and a date without also pulling down a
-README or a whole descriptor.
+its versions, and a version yields file paths. `get_entry` summarizes by default,
+returning only the ten most recently updated versions and the first 5,000 characters
+of the description; `summarize=false` returns them in full. The other two lookups
+take a list of fields so that a caller can ask for a name and a date without also
+pulling down a whole descriptor.
 
 `search_entries` sends an Elasticsearch query to Dockstore's TRS extension,
 `POST /api/ga4gh/v2/extended/tools/entry/_search`, which searches the same index as the
@@ -152,9 +154,8 @@ searched for.
 
 `get_entry` takes the numeric identifier Dockstore gives an entry and reads it from
 the webservice, trying the workflow endpoint first and the tool endpoint second, since
-only tools are served by the latter. Fields that cost an extra request — the
-categories an entry is filed under, and the facets Dockstore derives from them — are
-fetched only when they are asked for.
+only tools are served by the latter. It then fetches the categories the entry is
+filed under, from which it derives the entry's EDAM facets.
 
 ## Layout
 

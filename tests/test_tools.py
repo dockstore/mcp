@@ -32,7 +32,6 @@ from pydantic import BaseModel
 from dockstore_mcp.models import (
     DescriptorLanguage,
     Entry,
-    EntryField,
     EntryType,
     File,
     FileField,
@@ -40,8 +39,7 @@ from dockstore_mcp.models import (
     Version,
     VersionField,
 )
-from dockstore_mcp.tools.entries import DEFAULT_ENTRY_FIELDS
-from fake_dockstore import CATEGORIES, SEARCH_HITS, FakeDockstore
+from fake_dockstore import CATEGORIES, SEARCH_HITS, WORKFLOW, FakeDockstore
 
 #: Every tool that is scaffolded but not implemented, with valid arguments.
 UNIMPLEMENTED: list[tuple[str, dict[str, Any]]] = [
@@ -122,16 +120,26 @@ async def test_search_arguments_have_sane_defaults(client: Client[Any]) -> None:
 
 
 @pytest.mark.parametrize(
-    ("name", "required"),
-    [("get_entry", ["entry_id"]), ("get_version", ["version_id"]), ("get_file", ["version_id", "path"])],
+    ("name", "required", "trimmer"),
+    [
+        ("get_entry", ["entry_id"], "summarize"),
+        ("get_version", ["version_id"], "fields"),
+        ("get_file", ["version_id", "path"], "fields"),
+    ],
 )
-async def test_lookups_require_an_identifier(client: Client[Any], name: str, required: list[str]) -> None:
+async def test_lookups_require_an_identifier(client: Client[Any], name: str, required: list[str], trimmer: str) -> None:
     schema = await _schema(client, name)
     assert schema["required"] == required
-    assert "fields" in schema["properties"]
+    assert trimmer in schema["properties"]
 
 
-@pytest.mark.parametrize(("model", "field_enum"), [(Entry, EntryField), (Version, VersionField), (File, FileField)])
+async def test_get_entry_summarizes_by_default(client: Client[Any]) -> None:
+    properties = (await _schema(client, "get_entry"))["properties"]
+    assert set(properties) == {"entry_id", "summarize"}
+    assert properties["summarize"]["default"] is True
+
+
+@pytest.mark.parametrize(("model", "field_enum"), [(Version, VersionField), (File, FileField)])
 async def test_selectable_fields_match_their_model(model: type[BaseModel], field_enum: type[StrEnum]) -> None:
     """Field enums name the attributes they select, so callers cannot ask for a field that does not exist."""
     assert {member.value for member in field_enum} == set(model.model_fields)
@@ -143,14 +151,6 @@ async def _get_entry(client: Client[Any], **arguments: Any) -> Any:
     async with client:
         result = await client.call_tool("get_entry", arguments)
     return result.data
-
-
-async def _populated_fields(client: Client[Any], **arguments: Any) -> set[str]:
-    """The names of the fields get_entry answered with a value for."""
-    async with client:
-        result = await client.call_tool("get_entry", arguments)
-    assert result.structured_content is not None
-    return {name for name, value in result.structured_content.items() if value is not None}
 
 
 async def test_get_entry_summarizes_a_workflow(client: Client[Any]) -> None:
@@ -171,51 +171,87 @@ async def test_get_entry_summarizes_a_workflow(client: Client[Any]) -> None:
     )
 
 
-async def test_get_entry_returns_the_summary_fields_and_no_others(client: Client[Any]) -> None:
-    populated = await _populated_fields(client, entry_id="16247")
-    assert populated == {field.value for field in DEFAULT_ENTRY_FIELDS}
-    # The README is in the payload Dockstore answered with, but nobody asked for it.
-    assert "description" not in populated
-
-
-async def test_get_entry_returns_only_the_requested_fields(client: Client[Any]) -> None:
-    entry = await _get_entry(client, entry_id="16247", fields=["name", "description", "doi", "star_count"])
-    assert entry.name == "COVID-19-ARTIC-ILLUMINA"
+async def test_get_entry_returns_every_field(client: Client[Any], dockstore: FakeDockstore) -> None:
+    async with client:
+        result = await client.call_tool("get_entry", {"entry_id": "16247"})
+    assert result.structured_content is not None
+    assert set(result.structured_content) == set(Entry.model_fields)
+    entry = result.data
     assert entry.description is not None
     assert entry.description.startswith("# COVID-19")
     assert entry.doi == "10.5281/zenodo.15685746"
     assert entry.star_count == 2
-    assert entry.id is None
-    assert entry.versions is None
-
-
-async def test_get_entry_leaves_the_unrequested_fields_out_of_the_response(client: Client[Any]) -> None:
-    async with client:
-        result = await client.call_tool("get_entry", {"entry_id": "16247", "fields": ["name", "doi", "registry"]})
-    # A field that was asked for is sent even when it is empty; the rest are not sent at all.
-    assert result.structured_content == {
-        "name": "COVID-19-ARTIC-ILLUMINA",
-        "doi": "10.5281/zenodo.15685746",
-        "registry": None,
-    }
-
-
-async def test_get_entry_returns_every_field_for_a_star(client: Client[Any], dockstore: FakeDockstore) -> None:
-    entry = await _get_entry(client, entry_id="16247", fields=["*"])
-    assert entry.description is not None
     assert [(v.id, v.name, v.reference_type) for v in entry.versions] == [
         ("117122", "v0.5.1", ReferenceType.TAG),
         ("117123", "v0.5.2", ReferenceType.TAG),
     ]
     assert entry.operations == ["Variant calling"]
-    # Every field was asked for, so both of the follow-up requests were made.
     assert dockstore.paths() == ["/api/workflows/published/16247", "/api/entries/16247/categories"]
     assert dockstore.requests[0].url.params["include"] == "versions"
 
 
+def _many_versions(count: int) -> list[dict[str, Any]]:
+    """Versions of the workflow numbered 0 up, each updated a day after the last."""
+    return [
+        {
+            "id": 200000 + number,
+            "name": f"v{number}",
+            "referenceType": "TAG",
+            "last_modified": 1700000000000 + number * 86400000,
+        }
+        for number in range(count)
+    ]
+
+
+async def test_get_entry_summarizes_to_the_most_recent_versions(client: Client[Any], dockstore: FakeDockstore) -> None:
+    dockstore.workflow_versions = _many_versions(15)
+    entry = await _get_entry(client, entry_id="16247")
+    assert [version.name for version in entry.versions] == [f"v{number}" for number in range(14, 4, -1)]
+
+
+async def test_get_entry_returns_every_version_when_not_summarizing(
+    client: Client[Any], dockstore: FakeDockstore
+) -> None:
+    dockstore.workflow_versions = _many_versions(15)
+    entry = await _get_entry(client, entry_id="16247", summarize=False)
+    assert [version.name for version in entry.versions] == [f"v{number}" for number in range(15)]
+
+
+async def test_get_entry_finds_a_default_version_that_the_summary_leaves_out(
+    client: Client[Any], dockstore: FakeDockstore
+) -> None:
+    dockstore.workflow = WORKFLOW | {"defaultVersion": "v0"}
+    dockstore.workflow_versions = _many_versions(15)
+    entry = await _get_entry(client, entry_id="16247")
+    assert entry.default_version is not None
+    assert entry.default_version.name == "v0"
+    assert "v0" not in [version.name for version in entry.versions]
+
+
+async def test_get_entry_summarizes_a_long_description(client: Client[Any], dockstore: FakeDockstore) -> None:
+    dockstore.workflow = WORKFLOW | {"description": "x" * 6000}
+    entry = await _get_entry(client, entry_id="16247")
+    assert len(entry.description) == 5000
+    assert entry.description == "x" * 4999 + "…"
+
+
+async def test_get_entry_leaves_a_short_description_alone(client: Client[Any], dockstore: FakeDockstore) -> None:
+    dockstore.workflow = WORKFLOW | {"description": "x" * 5000}
+    entry = await _get_entry(client, entry_id="16247")
+    assert entry.description == "x" * 5000
+
+
+async def test_get_entry_returns_the_whole_description_when_not_summarizing(
+    client: Client[Any], dockstore: FakeDockstore
+) -> None:
+    dockstore.workflow = WORKFLOW | {"description": "x" * 6000}
+    entry = await _get_entry(client, entry_id="16247", summarize=False)
+    assert entry.description == "x" * 6000
+
+
 async def test_get_entry_finds_a_tool_too(client: Client[Any]) -> None:
     """Tools are not served by the endpoint that answers for everything else."""
-    entry = await _get_entry(client, entry_id="188", fields=["entry_type", "name", "path", "registry", "url"])
+    entry = await _get_entry(client, entry_id="188")
     assert entry.entry_type == EntryType.TOOL
     assert entry.name == "pcawg-dkfz-workflow"
     assert entry.path == "quay.io/pancancer/pcawg-dkfz-workflow"
@@ -224,11 +260,7 @@ async def test_get_entry_finds_a_tool_too(client: Client[Any]) -> None:
 
 
 async def test_get_entry_reads_a_tools_differently_spelled_fields(client: Client[Any]) -> None:
-    entry = await _get_entry(
-        client,
-        entry_id="188",
-        fields=["organization", "descriptor_type", "source_control", "star_count", "is_verified"],
-    )
+    entry = await _get_entry(client, entry_id="188")
     assert entry.organization == "pancancer"  # A tool calls this its namespace.
     assert entry.descriptor_type == DescriptorLanguage.CWL  # A tool can have several.
     assert entry.source_control == "github.com"  # Only a workflow states this outright.
@@ -238,55 +270,38 @@ async def test_get_entry_reads_a_tools_differently_spelled_fields(client: Client
 
 async def test_get_entry_summarizes_each_version(client: Client[Any]) -> None:
     async with client:
-        result = await client.call_tool("get_entry", {"entry_id": "188", "fields": ["versions"]})
-    assert result.structured_content == {
-        "versions": [
-            {
-                "id": "5011",
-                "name": "2.2.0",
-                "reference_type": "branch",
-                "updated_at": "2022-03-31T21:37:31Z",
-            }
-        ]
-    }
-
-
-async def test_get_entry_prefers_a_versions_last_modified_date(client: Client[Any]) -> None:
-    entry = await _get_entry(client, entry_id="16247", fields=["versions"])
-    assert entry.versions is not None
-    assert entry.versions[1].updated_at == datetime(2026, 5, 13, 15, 33, 42, tzinfo=UTC)
-
-
-async def test_get_entry_finds_the_default_version_among_the_versions(
-    client: Client[Any], dockstore: FakeDockstore
-) -> None:
-    async with client:
-        result = await client.call_tool("get_entry", {"entry_id": "188", "fields": ["default_version"]})
-    assert result.structured_content == {
-        "default_version": {
+        result = await client.call_tool("get_entry", {"entry_id": "188"})
+    assert result.structured_content is not None
+    assert result.structured_content["versions"] == [
+        {
             "id": "5011",
             "name": "2.2.0",
             "reference_type": "branch",
             "updated_at": "2022-03-31T21:37:31Z",
         }
+    ]
+
+
+async def test_get_entry_prefers_a_versions_last_modified_date(client: Client[Any]) -> None:
+    entry = await _get_entry(client, entry_id="16247")
+    assert entry.versions is not None
+    assert entry.versions[1].updated_at == datetime(2026, 5, 13, 15, 33, 42, tzinfo=UTC)
+
+
+async def test_get_entry_finds_the_default_version_among_the_versions(client: Client[Any]) -> None:
+    async with client:
+        result = await client.call_tool("get_entry", {"entry_id": "188"})
+    assert result.structured_content is not None
+    assert result.structured_content["default_version"] == {
+        "id": "5011",
+        "name": "2.2.0",
+        "reference_type": "branch",
+        "updated_at": "2022-03-31T21:37:31Z",
     }
-    assert dockstore.requests[0].url.params["include"] == "versions"
 
 
 async def test_get_entry_sorts_categories_into_their_fields(client: Client[Any]) -> None:
-    entry = await _get_entry(
-        client,
-        entry_id="16247",
-        fields=[
-            "categories",
-            "subject_areas",
-            "operations",
-            "input_formats",
-            "output_formats",
-            "input_data",
-            "output_data",
-        ],
-    )
+    entry = await _get_entry(client, entry_id="16247")
     assert entry.categories == ["COVID-19"]
     assert entry.subject_areas == ["Virology"]
     assert entry.operations == ["Variant calling"]
@@ -298,22 +313,6 @@ async def test_get_entry_sorts_categories_into_their_fields(client: Client[Any])
     sorted_labels = entry.categories + entry.subject_areas + entry.operations
     sorted_labels += entry.input_formats + entry.output_formats + entry.input_data + entry.output_data
     assert len(sorted_labels) == len(CATEGORIES)
-
-
-async def test_get_entry_asks_dockstore_for_no_more_than_it_needs(
-    client: Client[Any], dockstore: FakeDockstore
-) -> None:
-    await _get_entry(client, entry_id="16247", fields=["name"])
-    assert dockstore.paths() == ["/api/workflows/published/16247"]
-    assert "include" not in dockstore.requests[0].url.params
-
-
-async def test_get_entry_asks_for_versions_and_categories_when_they_are_wanted(
-    client: Client[Any], dockstore: FakeDockstore
-) -> None:
-    await _get_entry(client, entry_id="16247", fields=["versions", "operations"])
-    assert dockstore.paths() == ["/api/workflows/published/16247", "/api/entries/16247/categories"]
-    assert dockstore.requests[0].url.params["include"] == "versions"
 
 
 async def test_get_entry_rejects_something_that_is_not_an_identifier(client: Client[Any]) -> None:
@@ -378,7 +377,7 @@ async def test_search_summarizes_each_hit(client: Client[Any], dockstore: FakeDo
 
 async def test_search_ids_lead_to_get_entry(client: Client[Any], dockstore: FakeDockstore) -> None:
     results, _ = await _search(client, dockstore, query="covid")
-    entry = await _get_entry(client, entry_id=results["entries"][0]["id"], fields=["name"])
+    entry = await _get_entry(client, entry_id=results["entries"][0]["id"])
     assert entry.name == "COVID-19-ARTIC-ILLUMINA"
 
 
