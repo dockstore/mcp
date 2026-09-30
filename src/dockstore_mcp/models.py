@@ -58,9 +58,19 @@ class DescriptorLanguage(StrEnum):
     CWL = "CWL"
     WDL = "WDL"
     NEXTFLOW = "NFL"
-    GALAXY = "gxformat2"
+    GALAXY = "galaxy"
     SNAKEMAKE = "SMK"
     JUPYTER = "jupyter"
+
+    @classmethod
+    def from_dockstore(cls, value: str) -> "DescriptorLanguage":
+        """Look up a language by the name Dockstore knows it by."""
+        return cls.GALAXY if value == "gxformat2" else cls(value)
+
+    @property
+    def dockstore_value(self) -> str:
+        """The name Dockstore knows this language by."""
+        return "gxformat2" if self is DescriptorLanguage.GALAXY else self.value
 
 
 class ReferenceType(StrEnum):

@@ -402,7 +402,7 @@ def _descriptor_type(value: Any) -> DescriptorLanguage | None:
     if not isinstance(value, str):
         return None
     try:
-        return DescriptorLanguage(value)
+        return DescriptorLanguage.from_dockstore(value)
     except ValueError:
         # Services have no descriptor language, and report one that is not a language.
         logger.debug("Dockstore reported a descriptor type this server does not know: %r", value)

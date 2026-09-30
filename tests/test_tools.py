@@ -396,7 +396,7 @@ async def test_search_summarizes_each_hit(client: Client[Any], dockstore: FakeDo
     assert workflow == {
         "id": "16247",
         "entry_type": "workflow",
-        "descriptor_type": "gxformat2",
+        "descriptor_type": "galaxy",
         "name": "COVID-19-ARTIC-ILLUMINA",
         "trs_id": "#workflow/github.com/iwc-workflows/sars-cov-2-variant-calling/COVID-19-ARTIC-ILLUMINA",
         "topic": "Variant calling from SARS-CoV-2 paired-end Illumina ARTIC data.",
@@ -434,6 +434,13 @@ async def test_search_with_no_arguments_matches_everything(client: Client[Any], 
     _, body = await _search(client, dockstore)
     assert body["query"] == {"bool": {"filter": []}}
     assert body["sort"] == [{"relevance": {"order": "desc", "unmapped_type": "double"}}]
+
+
+async def test_search_filters_galaxy_by_the_name_dockstore_indexes(
+    client: Client[Any], dockstore: FakeDockstore
+) -> None:
+    _, body = await _search(client, dockstore, descriptor_type="galaxy")
+    assert body["query"]["bool"]["filter"] == [{"term": {"descriptorType": "gxformat2"}}]
 
 
 async def test_search_turns_each_facet_into_a_filter(client: Client[Any], dockstore: FakeDockstore) -> None:

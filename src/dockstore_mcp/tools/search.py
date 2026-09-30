@@ -261,7 +261,7 @@ def _query(
         filters.append({"term": {"entryTypeMetadata.type.keyword": entry_type.value.upper()}})
     if descriptor_type is not None:
         # A tool lists every language it has a descriptor in; a term matches any of them.
-        filters.append({"term": {"descriptorType": descriptor_type.value}})
+        filters.append({"term": {"descriptorType": descriptor_type.dockstore_value}})
     filters.extend(
         {"query_string": {"query": _escape_slashes(value), "fields": list(fields), "default_operator": "AND"}}
         for fields, value in facets.items()
