@@ -20,24 +20,18 @@ implemented, and are exercised against the canned Dockstore in :mod:`tests.fake_
 """
 
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import Any
 from unittest.mock import ANY
 
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
-from pydantic import BaseModel
 
 from dockstore_mcp.models import (
     DescriptorLanguage,
     Entry,
     EntryType,
-    File,
-    FileField,
     ReferenceType,
-    Version,
-    VersionField,
 )
 from fake_dockstore import CATEGORIES, SEARCH_HITS, WORKFLOW, FakeDockstore
 
@@ -120,17 +114,40 @@ async def test_search_arguments_have_sane_defaults(client: Client[Any]) -> None:
 
 
 @pytest.mark.parametrize(
-    ("name", "required", "trimmer"),
+    ("name", "required"),
     [
-        ("get_entry", ["entry_id"], "version_limit"),
-        ("get_version", ["version_id"], "fields"),
-        ("get_file", ["version_id", "path"], "fields"),
+        ("get_entry", ["entry_id"]),
+        ("get_version", ["version_id"]),
+        ("get_file", ["version_id", "path"]),
     ],
 )
-async def test_lookups_require_an_identifier(client: Client[Any], name: str, required: list[str], trimmer: str) -> None:
+async def test_lookups_require_an_identifier(client: Client[Any], name: str, required: list[str]) -> None:
     schema = await _schema(client, name)
     assert schema["required"] == required
-    assert trimmer in schema["properties"]
+
+
+async def test_get_version_limits_by_default(client: Client[Any]) -> None:
+    properties = (await _schema(client, "get_version"))["properties"]
+    assert set(properties) == {"version_id", "file_limit"}
+    assert properties["file_limit"]["default"] == 100
+
+
+async def test_get_version_rejects_a_limit_below_one(client: Client[Any]) -> None:
+    async with client:
+        with pytest.raises(ToolError, match="file_limit"):
+            await client.call_tool("get_version", {"version_id": "a-version", "file_limit": 0})
+
+
+async def test_get_file_limits_by_default(client: Client[Any]) -> None:
+    properties = (await _schema(client, "get_file"))["properties"]
+    assert set(properties) == {"version_id", "path", "content_limit"}
+    assert properties["content_limit"]["default"] == 50_000
+
+
+async def test_get_file_rejects_a_limit_below_one(client: Client[Any]) -> None:
+    async with client:
+        with pytest.raises(ToolError, match="content_limit"):
+            await client.call_tool("get_file", {"version_id": "a-version", "path": "Dockstore.cwl", "content_limit": 0})
 
 
 async def test_get_entry_limits_by_default(client: Client[Any]) -> None:
@@ -145,13 +162,6 @@ async def test_get_entry_rejects_a_limit_below_one(client: Client[Any], paramete
     async with client:
         with pytest.raises(ToolError):
             await client.call_tool("get_entry", {"entry_id": "16247", parameter: 0})
-
-
-@pytest.mark.parametrize(("model", "field_enum"), [(Version, VersionField), (File, FileField)])
-async def test_selectable_fields_match_their_model(model: type[BaseModel], field_enum: type[StrEnum]) -> None:
-    """Field enums name the attributes they select, so callers cannot ask for a field that does not exist."""
-    assert {member.value for member in field_enum} == set(model.model_fields)
-    assert all(info.default is None for info in model.model_fields.values())
 
 
 async def _get_entry(client: Client[Any], **arguments: Any) -> Any:

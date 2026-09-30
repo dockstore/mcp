@@ -24,7 +24,7 @@ tools are wired up to it.
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, SerializerFunctionWrapHandler, model_serializer
+from pydantic import BaseModel, Field
 
 __all__ = [
     "DescriptorLanguage",
@@ -32,12 +32,10 @@ __all__ = [
     "EntrySummary",
     "EntryType",
     "File",
-    "FileField",
     "ReferenceType",
     "SortBy",
     "SortOrder",
     "Version",
-    "VersionField",
     "VersionSummary",
 ]
 
@@ -129,20 +127,6 @@ class VersionSummary(BaseModel):
     updated_at: datetime | None = Field(default=None, description="When the version was last modified.")
 
 
-class _Sparse(BaseModel):
-    """A model that serializes only the fields it was given a value for.
-
-    The lookup tools fill in just the fields a caller asked for, and leaving the
-    others out of the response keeps it as small as the request.  A field that was
-    asked for but has no value is still sent, as null.
-    """
-
-    # No return annotation: one would replace the model's output schema with that type.
-    @model_serializer(mode="wrap")
-    def _only_set_fields(self, handler: SerializerFunctionWrapHandler):  # type: ignore[no-untyped-def]
-        return {name: value for name, value in handler(self).items() if name in self.model_fields_set}
-
-
 class Entry(BaseModel):
     """A Dockstore entry.
 
@@ -187,11 +171,11 @@ class Entry(BaseModel):
     url: str | None = Field(default=None, description="Address of the entry's page on Dockstore.")
 
 
-class Version(_Sparse):
+class Version(BaseModel):
     """One version of a Dockstore entry.
 
-    Every field is optional: a response carries only the fields the caller asked
-    for, and leaves the rest out.
+    Every field is optional, since Dockstore does not fill in every one for every
+    kind of entry.
     """
 
     id: str | None = Field(default=None, description="Dockstore identifier for the version.")
@@ -203,7 +187,11 @@ class Version(_Sparse):
         default=None, description="Language this version's descriptor is written in."
     )
     descriptor_path: str | None = Field(default=None, description="Path of the primary descriptor within the version.")
-    file_paths: list[str] | None = Field(default=None, description="Paths of the files; pass one to get_file.")
+    file_paths: list[str] | None = Field(
+        default=None,
+        description="Paths of the files, the primary descriptor first and no more than get_version's file_limit; "
+        "pass one to get_file.",
+    )
     is_valid: bool | None = Field(default=None, description="Whether Dockstore could parse the descriptor.")
     is_verified: bool | None = Field(default=None, description="Whether the version has been verified.")
     is_frozen: bool | None = Field(default=None, description="Whether the version is a snapshot and cannot change.")
@@ -213,46 +201,18 @@ class Version(_Sparse):
     url: str | None = Field(default=None, description="Address of the version's page on Dockstore.")
 
 
-class File(_Sparse):
+class File(BaseModel):
     """One file belonging to a version of an entry.
 
-    Every field is optional, for the same reason as on :class:`Entry`.
+    Every field is optional, since Dockstore does not fill in every one for every
+    kind of file.
     """
 
     path: str | None = Field(default=None, description="Path of the file within the version.")
     absolute_path: str | None = Field(default=None, description="Path of the file within its source repository.")
     file_type: str | None = Field(default=None, description="What the file is, for example a primary descriptor.")
-    content: str | None = Field(default=None, description="Contents of the file.")
+    content: str | None = Field(
+        default=None, description="Contents of the file; cut short past get_file's content_limit."
+    )
     checksums: dict[str, str] | None = Field(default=None, description="Checksums of the content, keyed by algorithm.")
     url: str | None = Field(default=None, description="Address the file can be fetched from.")
-
-
-class VersionField(StrEnum):
-    """Fields of a :class:`Version` that get_version can return."""
-
-    ID = "id"
-    ENTRY_ID = "entry_id"
-    NAME = "name"
-    TRS_ID = "trs_id"
-    REFERENCE = "reference"
-    LANGUAGE = "language"
-    DESCRIPTOR_PATH = "descriptor_path"
-    FILE_PATHS = "file_paths"
-    IS_VALID = "is_valid"
-    IS_VERIFIED = "is_verified"
-    IS_FROZEN = "is_frozen"
-    DOI = "doi"
-    CREATED_AT = "created_at"
-    UPDATED_AT = "updated_at"
-    URL = "url"
-
-
-class FileField(StrEnum):
-    """Fields of a :class:`File` that get_file can return."""
-
-    PATH = "path"
-    ABSOLUTE_PATH = "absolute_path"
-    FILE_TYPE = "file_type"
-    CONTENT = "content"
-    CHECKSUMS = "checksums"
-    URL = "url"

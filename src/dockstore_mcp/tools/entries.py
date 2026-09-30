@@ -16,9 +16,8 @@
 The three tools here are a chain: an entry has versions, a version has files.
 ``get_entry`` limits by default how many of an entry's versions and how much of
 its README it returns, so that a caller does not pull down more than it needs to
-decide what to read next.
-The other two take a list of fields, so a caller can ask for a name and a date
-without also pulling down the contents of a descriptor.
+decide what to read next; ``get_version`` does the same for its file paths, and
+``get_file`` for its content.
 
 TODO: ``get_version`` and ``get_file`` are still scaffolding and raise
 ``NotImplementedError`` until they are wired up to the Dockstore API.
@@ -40,17 +39,15 @@ from dockstore_mcp.models import (
     Entry,
     EntryType,
     File,
-    FileField,
     ReferenceType,
     Version,
-    VersionField,
     VersionSummary,
 )
 
 __all__ = [
+    "DEFAULT_CONTENT_LIMIT",
     "DEFAULT_DESCRIPTION_LIMIT",
-    "DEFAULT_FILE_FIELDS",
-    "DEFAULT_VERSION_FIELDS",
+    "DEFAULT_FILE_LIMIT",
     "DEFAULT_VERSION_LIMIT",
     "register",
 ]
@@ -68,29 +65,11 @@ _VERSION_PAGE_LIMIT = 100
 #: How many characters of the description get_entry returns by default.
 DEFAULT_DESCRIPTION_LIMIT = 5000
 
-#: What get_version returns when the caller does not name any fields.
-DEFAULT_VERSION_FIELDS = [
-    VersionField.ID,
-    VersionField.ENTRY_ID,
-    VersionField.NAME,
-    VersionField.TRS_ID,
-    VersionField.LANGUAGE,
-    VersionField.DESCRIPTOR_PATH,
-    VersionField.FILE_PATHS,
-    VersionField.IS_VALID,
-    VersionField.IS_VERIFIED,
-    VersionField.CREATED_AT,
-    VersionField.UPDATED_AT,
-    VersionField.URL,
-]
+#: How many file paths get_version returns by default: the primary descriptor first.
+DEFAULT_FILE_LIMIT = 100
 
-#: What get_file returns when the caller does not name any fields.  Unlike the
-#: other two this includes the content, since that is the point of the file.
-DEFAULT_FILE_FIELDS = [
-    FileField.PATH,
-    FileField.FILE_TYPE,
-    FileField.CONTENT,
-]
+#: How many characters of a file's content get_file returns by default.
+DEFAULT_CONTENT_LIMIT = 50_000
 
 #: Dockstore files an entry under automatic categories whose names say which
 #: facet they belong to, so one request for categories answers six of the
@@ -143,7 +122,10 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         )
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    def get_version(version_id: str, fields: list[VersionField] | None = None) -> Version:
+    def get_version(
+        version_id: str,
+        file_limit: Annotated[int | None, Field(ge=1)] = DEFAULT_FILE_LIMIT,
+    ) -> Version:
         """Retrieve information about one version of a Dockstore entry.
 
         A version is a tag, branch, or snapshot of an entry, and it is the level at
@@ -153,16 +135,22 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
 
         Args:
             version_id: Dockstore identifier of the version, as returned by ``get_entry``.
-            fields: Which fields to return. Defaults to a summary of the version.
+            file_limit: The most ``file_paths`` to return, starting with the
+                ``descriptor_path``, which is never cut. Pass null to get every path.
 
         Returns:
-            The version, with the requested fields populated and the rest left unset.
+            The version.
         """
-        # TODO: fetch the version from the Dockstore API and populate the requested fields.
+        # TODO: fetch the version from the Dockstore API, putting the primary
+        # descriptor first in file_paths and cutting them short at file_limit.
         raise NotImplementedError("get_version is not implemented yet")
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    def get_file(version_id: str, path: str, fields: list[FileField] | None = None) -> File:
+    def get_file(
+        version_id: str,
+        path: str,
+        content_limit: Annotated[int | None, Field(ge=1)] = DEFAULT_CONTENT_LIMIT,
+    ) -> File:
         """Retrieve one file belonging to a version of a Dockstore entry.
 
         This is how to read a descriptor, a test parameter file, or anything else
@@ -172,13 +160,14 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         Args:
             version_id: Dockstore identifier of the version the file belongs to.
             path: Path of the file within the version, as returned by ``get_version``.
-            fields: Which fields to return. Defaults to the file's contents and what
-                kind of file it is.
+            content_limit: The most characters of the ``content`` to return. Pass
+                null to get the whole file.
 
         Returns:
-            The file, with the requested fields populated and the rest left unset.
+            The file.
         """
-        # TODO: fetch the file from the Dockstore API and populate the requested fields.
+        # TODO: fetch the file from the Dockstore API, cutting its content short
+        # at content_limit with _truncate.
         raise NotImplementedError("get_file is not implemented yet")
 
 
