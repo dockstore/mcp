@@ -311,6 +311,10 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         ``next_version_offset`` as ``version_offset`` (a page number, not an item index).
         Keep going until it is unset: a page can come back short, or even empty, before the last.
 
+        Paging only speeds up the response for workflows, where Dockstore pages in the database,
+        so a small page is both quicker and smaller than all versions at once. For a Docker tool
+        Dockstore pages in Java after loading every version, so a small page is smaller but no quicker.
+
         Returns:
             The tool's metadata and one page of its versions, in full or (if ``summary``) summarized,
             plus the next page's offset.
