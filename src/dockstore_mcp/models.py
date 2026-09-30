@@ -150,7 +150,7 @@ class Entry(BaseModel):
     trs_id: str | None = Field(default=None, description="GA4GH TRS identifier, for use against the TRS API.")
     topic: str | None = Field(default=None, description="One-line description of what the entry does.")
     description: str | None = Field(
-        default=None, description="Long description, usually the README; cut short when summarized."
+        default=None, description="Long description, usually the README; cut short past get_entry's description_limit."
     )
     authors: list[str] | None = Field(default=None, description="Authors credited on the entry.")
     labels: list[str] | None = Field(default=None, description="Free-form labels applied to the entry.")
@@ -168,7 +168,7 @@ class Entry(BaseModel):
     default_version: VersionSummary | None = Field(default=None, description="The version served by default.")
     versions: list[VersionSummary] | None = Field(
         default=None,
-        description="The entry's versions, most relevant first and only the first few when summarized; "
+        description="The entry's versions, most relevant first and no more than get_entry's version_limit; "
         "pass a version's id to get_version.",
     )
     doi: str | None = Field(default=None, description="Concept DOI for the entry as a whole, if there is one.")

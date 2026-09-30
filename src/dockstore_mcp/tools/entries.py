@@ -14,8 +14,9 @@
 """Lookups of a single entry, version, or file.
 
 The three tools here are a chain: an entry has versions, a version has files.
-``get_entry`` summarizes by default, trimming an entry's versions and README so
-that a caller does not pull down more than it needs to decide what to read next.
+``get_entry`` limits by default how many of an entry's versions and how much of
+its README it returns, so that a caller does not pull down more than it needs to
+decide what to read next.
 The other two take a list of fields, so a caller can ask for a name and a date
 without also pulling down the contents of a descriptor.
 
@@ -26,10 +27,11 @@ TODO: ``get_version`` and ``get_file`` are still scaffolding and raise
 import logging
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from pydantic import Field
 
 from dockstore_mcp.api import DockstoreApi, NotFoundError
 from dockstore_mcp.config import Settings
@@ -46,10 +48,10 @@ from dockstore_mcp.models import (
 )
 
 __all__ = [
+    "DEFAULT_DESCRIPTION_LIMIT",
     "DEFAULT_FILE_FIELDS",
     "DEFAULT_VERSION_FIELDS",
-    "SUMMARY_DESCRIPTION_LIMIT",
-    "SUMMARY_VERSION_LIMIT",
+    "DEFAULT_VERSION_LIMIT",
     "register",
 ]
 
@@ -57,14 +59,14 @@ logger = logging.getLogger(__name__)
 
 _EPOCH = datetime.fromtimestamp(0, tz=UTC)
 
-#: How many versions get_entry returns when summarizing: the first, in Dockstore's order.
-SUMMARY_VERSION_LIMIT = 10
+#: How many versions get_entry returns by default: the first, in Dockstore's order.
+DEFAULT_VERSION_LIMIT = 10
 
 #: The most versions Dockstore returns in one page.
 _VERSION_PAGE_LIMIT = 100
 
-#: How many characters of the description get_entry returns when summarizing.
-SUMMARY_DESCRIPTION_LIMIT = 5000
+#: How many characters of the description get_entry returns by default.
+DEFAULT_DESCRIPTION_LIMIT = 5000
 
 #: What get_version returns when the caller does not name any fields.
 DEFAULT_VERSION_FIELDS = [
@@ -107,7 +109,11 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
     """Add the entry, version, and file lookup tools to ``mcp``."""
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    async def get_entry(entry_id: str, summarize: bool = True) -> Entry:
+    async def get_entry(
+        entry_id: str,
+        description_limit: Annotated[int | None, Field(ge=1)] = DEFAULT_DESCRIPTION_LIMIT,
+        version_limit: Annotated[int | None, Field(ge=1)] = DEFAULT_VERSION_LIMIT,
+    ) -> Entry:
         """Retrieve information about one Dockstore entry.
 
         Use this once you have an entry's identifier, which ``search_entries`` returns.
@@ -116,19 +122,25 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
 
         Args:
             entry_id: Dockstore identifier of the entry, as returned by ``search_entries``.
-            summarize: Whether to trim the entry to a summary: only the first 10
-                ``versions``, which Dockstore orders with the default version first and
-                the most relevant after it, and only the first 5,000 characters of the
-                ``description``, which is often a whole README. Pass false to get every
-                version and the full description.
+            description_limit: The most characters of the ``description``, which is
+                often a whole README, to return. Pass null to get the full description.
+            version_limit: The most ``versions`` to return, taken from the start of
+                Dockstore's order, which puts the default version first and the most
+                relevant after it. Pass null to get every version.
 
         Returns:
             The entry.
         """
         identifier = _identifier(entry_id)
-        payload = await _fetch_entry(api, identifier, summarize=summarize)
+        payload = await _fetch_entry(api, identifier, version_limit=version_limit)
         categories = await _fetch_categories(api, identifier)
-        return _to_entry(payload, categories, settings, summarize=summarize)
+        return _to_entry(
+            payload,
+            categories,
+            settings,
+            description_limit=description_limit,
+            version_limit=version_limit,
+        )
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     def get_version(version_id: str, fields: list[VersionField] | None = None) -> Version:
@@ -181,7 +193,7 @@ def _identifier(entry_id: str) -> str:
     return identifier
 
 
-async def _fetch_entry(api: DockstoreApi, identifier: str, *, summarize: bool) -> dict[str, Any]:
+async def _fetch_entry(api: DockstoreApi, identifier: str, *, version_limit: int | None) -> dict[str, Any]:
     """Fetch a published entry and its versions, whichever kind of entry it turns out to be."""
     # Workflows, notebooks, services, and apptools are all served by the workflows
     # endpoint; only tools live elsewhere, so that endpoint is the one to try second.
@@ -190,7 +202,7 @@ async def _fetch_entry(api: DockstoreApi, identifier: str, *, summarize: bool) -
     except NotFoundError:
         pass
     else:
-        versions = await _fetch_workflow_versions(api, identifier, summarize=summarize)
+        versions = await _fetch_workflow_versions(api, identifier, limit=version_limit)
         return workflow | {"workflowVersions": versions}
     try:
         # Tools have no paged endpoint for their versions, so they come with the tool.
@@ -202,17 +214,19 @@ async def _fetch_entry(api: DockstoreApi, identifier: str, *, summarize: bool) -
         ) from None
 
 
-async def _fetch_workflow_versions(api: DockstoreApi, identifier: str, *, summarize: bool) -> list[Any]:
-    """Fetch a workflow's visible versions in Dockstore's order, only the first few if ``summarize``."""
+async def _fetch_workflow_versions(api: DockstoreApi, identifier: str, *, limit: int | None) -> list[Any]:
+    """Fetch a workflow's visible versions in Dockstore's order, only the first ``limit`` if one is given."""
     endpoint = f"/workflows/published/{identifier}/workflowVersions"
-    if summarize:
-        return await api.get_list(endpoint, {"limit": SUMMARY_VERSION_LIMIT})
+    if limit is not None and limit <= _VERSION_PAGE_LIMIT:
+        return await api.get_list(endpoint, {"limit": limit})
     versions: list[Any] = []
-    while True:
-        page = await api.get_list(endpoint, {"limit": _VERSION_PAGE_LIMIT, "offset": len(versions)})
+    while limit is None or len(versions) < limit:
+        page_limit = _VERSION_PAGE_LIMIT if limit is None else min(_VERSION_PAGE_LIMIT, limit - len(versions))
+        page = await api.get_list(endpoint, {"limit": page_limit, "offset": len(versions)})
         versions.extend(page)
-        if len(page) < _VERSION_PAGE_LIMIT:
-            return versions
+        if len(page) < page_limit:
+            break
+    return versions
 
 
 async def _fetch_categories(api: DockstoreApi, identifier: str) -> list[Any]:
@@ -229,9 +243,10 @@ def _to_entry(
     categories: list[Any],
     settings: Settings,
     *,
-    summarize: bool,
+    description_limit: int | None,
+    version_limit: int | None,
 ) -> Entry:
-    """Map a Dockstore entry payload onto an :class:`Entry`, trimmed if ``summarize``."""
+    """Map a Dockstore entry payload onto an :class:`Entry`, trimmed to the limits given."""
     facets = _facets(categories)
     versions = payload.get("workflowVersions")
     summaries = _versions(versions)
@@ -245,7 +260,7 @@ def _to_entry(
         "organization": _first_of(payload, "organization", "namespace"),
         "trs_id": payload.get("trsId"),
         "topic": payload.get("topic"),
-        "description": _truncate(description, SUMMARY_DESCRIPTION_LIMIT) if summarize else description,
+        "description": _truncate(description, description_limit),
         "authors": _values_of(payload.get("authors"), "name"),
         "labels": _values_of(payload.get("labels"), "value"),
         "categories": facets["categories"],
@@ -261,7 +276,7 @@ def _to_entry(
         "star_count": len(starred) if starred is not None else None,
         "default_version": _default_version(summaries, payload.get("defaultVersion")),
         # A workflow's versions are already in Dockstore's order, and too few to trim.
-        "versions": _most_recent(summaries, SUMMARY_VERSION_LIMIT) if summarize else summaries,
+        "versions": _most_recent(summaries, version_limit),
         "doi": _doi(payload),
         "created_at": _timestamp(payload.get("dbCreateDate")),
         "updated_at": _timestamp(
@@ -316,17 +331,17 @@ def _versions(versions: Any) -> list[VersionSummary] | None:
     ]
 
 
-def _most_recent(summaries: list[VersionSummary] | None, limit: int) -> list[VersionSummary] | None:
-    """Keep the ``limit`` most recently updated versions, newest first."""
-    if summaries is None or len(summaries) <= limit:
+def _most_recent(summaries: list[VersionSummary] | None, limit: int | None) -> list[VersionSummary] | None:
+    """Keep the ``limit`` most recently updated versions, newest first, or all of them if no limit."""
+    if summaries is None or limit is None or len(summaries) <= limit:
         return summaries
     # A version with no date sorts after every version with one.
     return sorted(summaries, key=lambda summary: summary.updated_at or _EPOCH, reverse=True)[:limit]
 
 
-def _truncate(text: Any, limit: int) -> Any:
+def _truncate(text: Any, limit: int | None) -> Any:
     """Cut ``text`` down to ``limit`` characters, ending with an ellipsis if anything was cut."""
-    if not isinstance(text, str) or len(text) <= limit:
+    if not isinstance(text, str) or limit is None or len(text) <= limit:
         return text
     return text[: limit - 1] + "…"
 

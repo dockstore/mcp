@@ -122,7 +122,7 @@ async def test_search_arguments_have_sane_defaults(client: Client[Any]) -> None:
 @pytest.mark.parametrize(
     ("name", "required", "trimmer"),
     [
-        ("get_entry", ["entry_id"], "summarize"),
+        ("get_entry", ["entry_id"], "version_limit"),
         ("get_version", ["version_id"], "fields"),
         ("get_file", ["version_id", "path"], "fields"),
     ],
@@ -133,10 +133,18 @@ async def test_lookups_require_an_identifier(client: Client[Any], name: str, req
     assert trimmer in schema["properties"]
 
 
-async def test_get_entry_summarizes_by_default(client: Client[Any]) -> None:
+async def test_get_entry_limits_by_default(client: Client[Any]) -> None:
     properties = (await _schema(client, "get_entry"))["properties"]
-    assert set(properties) == {"entry_id", "summarize"}
-    assert properties["summarize"]["default"] is True
+    assert set(properties) == {"entry_id", "description_limit", "version_limit"}
+    assert properties["description_limit"]["default"] == 5000
+    assert properties["version_limit"]["default"] == 10
+
+
+@pytest.mark.parametrize("parameter", ["description_limit", "version_limit"])
+async def test_get_entry_rejects_a_limit_below_one(client: Client[Any], parameter: str) -> None:
+    async with client:
+        with pytest.raises(ToolError):
+            await client.call_tool("get_entry", {"entry_id": "16247", parameter: 0})
 
 
 @pytest.mark.parametrize(("model", "field_enum"), [(Version, VersionField), (File, FileField)])
@@ -207,7 +215,7 @@ def _many_versions(count: int) -> list[dict[str, Any]]:
     ]
 
 
-async def test_get_entry_summarizes_to_the_first_versions_in_dockstores_order(
+async def test_get_entry_limits_to_the_first_versions_in_dockstores_order(
     client: Client[Any], dockstore: FakeDockstore
 ) -> None:
     dockstore.workflow_versions = _many_versions(15)
@@ -215,11 +223,29 @@ async def test_get_entry_summarizes_to_the_first_versions_in_dockstores_order(
     assert [version.name for version in entry.versions] == [f"v{number}" for number in range(10)]
 
 
-async def test_get_entry_pages_through_every_version_when_not_summarizing(
+async def test_get_entry_takes_a_smaller_version_limit(client: Client[Any], dockstore: FakeDockstore) -> None:
+    dockstore.workflow_versions = _many_versions(15)
+    entry = await _get_entry(client, entry_id="16247", version_limit=3)
+    assert [version.name for version in entry.versions] == ["v0", "v1", "v2"]
+    pages = [dict(r.url.params) for r in dockstore.requests if r.url.path.endswith("/workflowVersions")]
+    assert pages == [{"limit": "3"}]
+
+
+async def test_get_entry_pages_up_to_a_version_limit_beyond_one_page(
     client: Client[Any], dockstore: FakeDockstore
 ) -> None:
     dockstore.workflow_versions = _many_versions(250)
-    entry = await _get_entry(client, entry_id="16247", summarize=False)
+    entry = await _get_entry(client, entry_id="16247", version_limit=150)
+    assert [version.name for version in entry.versions] == [f"v{number}" for number in range(150)]
+    pages = [dict(r.url.params) for r in dockstore.requests if r.url.path.endswith("/workflowVersions")]
+    assert pages == [{"limit": "100", "offset": "0"}, {"limit": "50", "offset": "100"}]
+
+
+async def test_get_entry_pages_through_every_version_without_a_limit(
+    client: Client[Any], dockstore: FakeDockstore
+) -> None:
+    dockstore.workflow_versions = _many_versions(250)
+    entry = await _get_entry(client, entry_id="16247", version_limit=None)
     assert [version.name for version in entry.versions] == [f"v{number}" for number in range(250)]
     pages = [dict(r.url.params) for r in dockstore.requests if r.url.path.endswith("/workflowVersions")]
     assert pages == [{"limit": "100", "offset": str(offset)} for offset in (0, 100, 200)]
@@ -227,7 +253,7 @@ async def test_get_entry_pages_through_every_version_when_not_summarizing(
 
 async def test_get_entry_stops_paging_at_an_empty_page(client: Client[Any], dockstore: FakeDockstore) -> None:
     dockstore.workflow_versions = _many_versions(200)
-    entry = await _get_entry(client, entry_id="16247", summarize=False)
+    entry = await _get_entry(client, entry_id="16247", version_limit=None)
     assert len(entry.versions) == 200
     assert dockstore.paths().count("/api/workflows/published/16247/workflowVersions") == 3
 
@@ -240,7 +266,7 @@ async def test_get_entry_fetches_a_tools_versions_with_the_tool(client: Client[A
     assert dockstore.requests[1].url.params["include"] == "versions"
 
 
-async def test_get_entry_summarizes_a_long_description(client: Client[Any], dockstore: FakeDockstore) -> None:
+async def test_get_entry_limits_a_long_description(client: Client[Any], dockstore: FakeDockstore) -> None:
     dockstore.workflow = WORKFLOW | {"description": "x" * 6000}
     entry = await _get_entry(client, entry_id="16247")
     assert len(entry.description) == 5000
@@ -253,11 +279,17 @@ async def test_get_entry_leaves_a_short_description_alone(client: Client[Any], d
     assert entry.description == "x" * 5000
 
 
-async def test_get_entry_returns_the_whole_description_when_not_summarizing(
+async def test_get_entry_takes_a_smaller_description_limit(client: Client[Any], dockstore: FakeDockstore) -> None:
+    dockstore.workflow = WORKFLOW | {"description": "x" * 6000}
+    entry = await _get_entry(client, entry_id="16247", description_limit=100)
+    assert entry.description == "x" * 99 + "…"
+
+
+async def test_get_entry_returns_the_whole_description_without_a_limit(
     client: Client[Any], dockstore: FakeDockstore
 ) -> None:
     dockstore.workflow = WORKFLOW | {"description": "x" * 6000}
-    entry = await _get_entry(client, entry_id="16247", summarize=False)
+    entry = await _get_entry(client, entry_id="16247", description_limit=None)
     assert entry.description == "x" * 6000
 
 
