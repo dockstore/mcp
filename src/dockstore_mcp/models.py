@@ -164,12 +164,12 @@ class Entry(BaseModel):
     registry: str | None = Field(default=None, description="Image or workflow registry hosting the entry.")
     source_control: str | None = Field(default=None, description="Source control provider the descriptor lives in.")
     is_published: bool | None = Field(default=None, description="Whether the entry is publicly visible.")
-    is_verified: bool | None = Field(default=None, description="Whether any version has been verified.")
     star_count: int | None = Field(default=None, description="How many users have starred the entry.")
     default_version: VersionSummary | None = Field(default=None, description="The version served by default.")
     versions: list[VersionSummary] | None = Field(
         default=None,
-        description="The entry's versions, only the most recent when summarized; pass a version's id to get_version.",
+        description="The entry's versions, most relevant first and only the first few when summarized; "
+        "pass a version's id to get_version.",
     )
     doi: str | None = Field(default=None, description="Concept DOI for the entry as a whole, if there is one.")
     created_at: datetime | None = Field(default=None, description="When the entry was registered.")

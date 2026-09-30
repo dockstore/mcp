@@ -60,7 +60,7 @@ WORKFLOW: dict[str, Any] = {
     "workflowVersions": None,
 }
 
-#: What ``include=versions`` adds to the workflow above.
+#: The workflow's versions, as ``/workflows/published/{id}/workflowVersions`` pages them.
 WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     {
         "id": 117122,
@@ -255,6 +255,10 @@ class FakeDockstore:
         match request.url.path:
             case "/api/workflows/published/16247":
                 return self._entry(self.workflow, self.workflow_versions, wants_versions)
+            case "/api/workflows/published/16247/workflowVersions":
+                offset = int(request.url.params.get("offset", 0))
+                limit = int(request.url.params.get("limit", 100))
+                return httpx2.Response(200, json=self.workflow_versions[offset : offset + limit])
             case "/api/containers/published/188":
                 return self._entry(TOOL, TOOL_VERSIONS, wants_versions)
             case "/api/entries/16247/categories":

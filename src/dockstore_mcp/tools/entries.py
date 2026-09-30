@@ -57,8 +57,11 @@ logger = logging.getLogger(__name__)
 
 _EPOCH = datetime.fromtimestamp(0, tz=UTC)
 
-#: How many versions get_entry returns when summarizing: the most recently updated.
+#: How many versions get_entry returns when summarizing: the first, in Dockstore's order.
 SUMMARY_VERSION_LIMIT = 10
+
+#: The most versions Dockstore returns in one page.
+_VERSION_PAGE_LIMIT = 100
 
 #: How many characters of the description get_entry returns when summarizing.
 SUMMARY_DESCRIPTION_LIMIT = 5000
@@ -113,8 +116,9 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
 
         Args:
             entry_id: Dockstore identifier of the entry, as returned by ``search_entries``.
-            summarize: Whether to trim the entry to a summary: only the 10 most recently
-                updated ``versions``, and only the first 5,000 characters of the
+            summarize: Whether to trim the entry to a summary: only the first 10
+                ``versions``, which Dockstore orders with the default version first and
+                the most relevant after it, and only the first 5,000 characters of the
                 ``description``, which is often a whole README. Pass false to get every
                 version and the full description.
 
@@ -122,7 +126,7 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
             The entry.
         """
         identifier = _identifier(entry_id)
-        payload = await _fetch_entry(api, identifier)
+        payload = await _fetch_entry(api, identifier, summarize=summarize)
         categories = await _fetch_categories(api, identifier)
         return _to_entry(payload, categories, settings, summarize=summarize)
 
@@ -177,20 +181,38 @@ def _identifier(entry_id: str) -> str:
     return identifier
 
 
-async def _fetch_entry(api: DockstoreApi, identifier: str) -> dict[str, Any]:
+async def _fetch_entry(api: DockstoreApi, identifier: str, *, summarize: bool) -> dict[str, Any]:
     """Fetch a published entry and its versions, whichever kind of entry it turns out to be."""
-    params = {"include": "versions"}
     # Workflows, notebooks, services, and apptools are all served by the workflows
     # endpoint; only tools live elsewhere, so that endpoint is the one to try second.
-    for endpoint in (f"/workflows/published/{identifier}", f"/containers/published/{identifier}"):
-        try:
-            return await api.get_object(endpoint, params)
-        except NotFoundError:
-            continue
-    raise NotFoundError(
-        f"Dockstore has no published entry with identifier '{identifier}'. "
-        "Use search_entries to find an entry and its identifier."
-    )
+    try:
+        workflow = await api.get_object(f"/workflows/published/{identifier}")
+    except NotFoundError:
+        pass
+    else:
+        versions = await _fetch_workflow_versions(api, identifier, summarize=summarize)
+        return workflow | {"workflowVersions": versions}
+    try:
+        # Tools have no paged endpoint for their versions, so they come with the tool.
+        return await api.get_object(f"/containers/published/{identifier}", {"include": "versions"})
+    except NotFoundError:
+        raise NotFoundError(
+            f"Dockstore has no published entry with identifier '{identifier}'. "
+            "Use search_entries to find an entry and its identifier."
+        ) from None
+
+
+async def _fetch_workflow_versions(api: DockstoreApi, identifier: str, *, summarize: bool) -> list[Any]:
+    """Fetch a workflow's visible versions in Dockstore's order, only the first few if ``summarize``."""
+    endpoint = f"/workflows/published/{identifier}/workflowVersions"
+    if summarize:
+        return await api.get_list(endpoint, {"limit": SUMMARY_VERSION_LIMIT})
+    versions: list[Any] = []
+    while True:
+        page = await api.get_list(endpoint, {"limit": _VERSION_PAGE_LIMIT, "offset": len(versions)})
+        versions.extend(page)
+        if len(page) < _VERSION_PAGE_LIMIT:
+            return versions
 
 
 async def _fetch_categories(api: DockstoreApi, identifier: str) -> list[Any]:
@@ -236,9 +258,9 @@ def _to_entry(
         "registry": _first_of(payload, "registry_string", "registry"),
         "source_control": _source_control(payload),
         "is_published": payload.get("is_published"),
-        "is_verified": any(version.get("verified") for version in versions) if versions is not None else None,
         "star_count": len(starred) if starred is not None else None,
         "default_version": _default_version(summaries, payload.get("defaultVersion")),
+        # A workflow's versions are already in Dockstore's order, and too few to trim.
         "versions": _most_recent(summaries, SUMMARY_VERSION_LIMIT) if summarize else summaries,
         "doi": _doi(payload),
         "created_at": _timestamp(payload.get("dbCreateDate")),

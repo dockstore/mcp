@@ -134,8 +134,8 @@ and does not check PyPI for updates on startup; see the
 `get_version` and `get_file` are scaffolding and are not implemented yet. The four
 form a chain: `search_entries` yields entry identifiers, an entry yields
 its versions, and a version yields file paths. `get_entry` summarizes by default,
-returning only the ten most recently updated versions and the first 5,000 characters
-of the description; `summarize=false` returns them in full. The other two lookups
+returning only the first ten versions, in the order Dockstore ranks them (the default
+version first), and the first 5,000 characters of the description; `summarize=false` returns them in full. The other two lookups
 take a list of fields so that a caller can ask for a name and a date without also
 pulling down a whole descriptor.
 

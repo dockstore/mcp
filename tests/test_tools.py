@@ -185,8 +185,13 @@ async def test_get_entry_returns_every_field(client: Client[Any], dockstore: Fak
         ("117123", "v0.5.2", ReferenceType.TAG),
     ]
     assert entry.operations == ["Variant calling"]
-    assert dockstore.paths() == ["/api/workflows/published/16247", "/api/entries/16247/categories"]
-    assert dockstore.requests[0].url.params["include"] == "versions"
+    assert dockstore.paths() == [
+        "/api/workflows/published/16247",
+        "/api/workflows/published/16247/workflowVersions",
+        "/api/entries/16247/categories",
+    ]
+    assert "include" not in dockstore.requests[0].url.params
+    assert dict(dockstore.requests[1].url.params) == {"limit": "10"}
 
 
 def _many_versions(count: int) -> list[dict[str, Any]]:
@@ -202,29 +207,37 @@ def _many_versions(count: int) -> list[dict[str, Any]]:
     ]
 
 
-async def test_get_entry_summarizes_to_the_most_recent_versions(client: Client[Any], dockstore: FakeDockstore) -> None:
-    dockstore.workflow_versions = _many_versions(15)
-    entry = await _get_entry(client, entry_id="16247")
-    assert [version.name for version in entry.versions] == [f"v{number}" for number in range(14, 4, -1)]
-
-
-async def test_get_entry_returns_every_version_when_not_summarizing(
+async def test_get_entry_summarizes_to_the_first_versions_in_dockstores_order(
     client: Client[Any], dockstore: FakeDockstore
 ) -> None:
     dockstore.workflow_versions = _many_versions(15)
+    entry = await _get_entry(client, entry_id="16247")
+    assert [version.name for version in entry.versions] == [f"v{number}" for number in range(10)]
+
+
+async def test_get_entry_pages_through_every_version_when_not_summarizing(
+    client: Client[Any], dockstore: FakeDockstore
+) -> None:
+    dockstore.workflow_versions = _many_versions(250)
     entry = await _get_entry(client, entry_id="16247", summarize=False)
-    assert [version.name for version in entry.versions] == [f"v{number}" for number in range(15)]
+    assert [version.name for version in entry.versions] == [f"v{number}" for number in range(250)]
+    pages = [dict(r.url.params) for r in dockstore.requests if r.url.path.endswith("/workflowVersions")]
+    assert pages == [{"limit": "100", "offset": str(offset)} for offset in (0, 100, 200)]
 
 
-async def test_get_entry_finds_a_default_version_that_the_summary_leaves_out(
-    client: Client[Any], dockstore: FakeDockstore
-) -> None:
-    dockstore.workflow = WORKFLOW | {"defaultVersion": "v0"}
-    dockstore.workflow_versions = _many_versions(15)
-    entry = await _get_entry(client, entry_id="16247")
-    assert entry.default_version is not None
-    assert entry.default_version.name == "v0"
-    assert "v0" not in [version.name for version in entry.versions]
+async def test_get_entry_stops_paging_at_an_empty_page(client: Client[Any], dockstore: FakeDockstore) -> None:
+    dockstore.workflow_versions = _many_versions(200)
+    entry = await _get_entry(client, entry_id="16247", summarize=False)
+    assert len(entry.versions) == 200
+    assert dockstore.paths().count("/api/workflows/published/16247/workflowVersions") == 3
+
+
+async def test_get_entry_fetches_a_tools_versions_with_the_tool(client: Client[Any], dockstore: FakeDockstore) -> None:
+    """Tools have no paged endpoint for their versions, so they come with the tool."""
+    entry = await _get_entry(client, entry_id="188")
+    assert [version.name for version in entry.versions] == ["2.2.0"]
+    assert dockstore.paths()[1] == "/api/containers/published/188"
+    assert dockstore.requests[1].url.params["include"] == "versions"
 
 
 async def test_get_entry_summarizes_a_long_description(client: Client[Any], dockstore: FakeDockstore) -> None:
@@ -263,7 +276,6 @@ async def test_get_entry_reads_a_tools_differently_spelled_fields(client: Client
     assert entry.descriptor_type == DescriptorLanguage.CWL  # A tool can have several.
     assert entry.source_control == "github.com"  # Only a workflow states this outright.
     assert entry.star_count == 0
-    assert entry.is_verified is True
 
 
 async def test_get_entry_summarizes_each_version(client: Client[Any]) -> None:
