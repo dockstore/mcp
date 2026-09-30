@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 _EPOCH = datetime.fromtimestamp(0, tz=UTC)
 
 #: How many versions get_entry returns by default: the first, in Dockstore's order.
-DEFAULT_VERSION_LIMIT = 10
+DEFAULT_VERSION_LIMIT = 20
 
 #: The most versions Dockstore returns in one page.
 _VERSION_PAGE_LIMIT = 100
@@ -74,7 +74,7 @@ DEFAULT_VERSION_FIELDS = [
     VersionField.ENTRY_ID,
     VersionField.NAME,
     VersionField.TRS_ID,
-    VersionField.DESCRIPTOR_TYPE,
+    VersionField.LANGUAGE,
     VersionField.DESCRIPTOR_PATH,
     VersionField.FILE_PATHS,
     VersionField.IS_VALID,
@@ -254,8 +254,8 @@ def _to_entry(
     starred = payload.get("starredUsers")
     values: dict[str, Any] = {
         "id": _text(payload.get("id")),
-        "entry_type": _entry_type(payload.get("entryType")),
-        "descriptor_type": _descriptor_type(payload.get("descriptorType")),
+        "type": _entry_type(payload.get("entryType")),
+        "language": _language(payload.get("descriptorType")),
         "name": _first_of(payload, "workflowName", "toolname", "repository", "name"),
         "organization": _first_of(payload, "organization", "namespace"),
         "trs_id": payload.get("trsId"),
@@ -395,7 +395,7 @@ def _reference_type(value: Any) -> ReferenceType | None:
         return None
 
 
-def _descriptor_type(value: Any) -> DescriptorLanguage | None:
+def _language(value: Any) -> DescriptorLanguage | None:
     # A tool carries a list, since one tool can have both a CWL and a WDL descriptor.
     if isinstance(value, list):
         value = next(iter(value), None)

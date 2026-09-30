@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 from dockstore_mcp.api import BadRequestError, DockstoreApi
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import DescriptorLanguage, EntrySummary, EntryType, SortBy, SortOrder
-from dockstore_mcp.tools.entries import _descriptor_type, _entry_type, _first_of, _timestamp
+from dockstore_mcp.tools.entries import _entry_type, _first_of, _language, _timestamp
 
 __all__ = ["DEFAULT_LIMIT", "MAX_LIMIT", "SEARCH_PATH", "SearchResults", "register"]
 
@@ -152,8 +152,8 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def search_entries(
         query: str | None = None,
-        entry_type: EntryType | None = None,
-        descriptor_type: DescriptorLanguage | None = None,
+        type: EntryType | None = None,
+        language: DescriptorLanguage | None = None,
         author: str | None = None,
         input_data: str | None = None,
         input_format: str | None = None,
@@ -189,8 +189,8 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
 
         Args:
             query: Keywords to look for anywhere in an entry's metadata, path, or descriptors.
-            entry_type: Restrict results to one kind of entry. Services cannot be searched.
-            descriptor_type: Restrict results to one descriptor language.
+            type: Restrict results to one kind of entry. Services cannot be searched.
+            language: Restrict results to one descriptor language.
             author: Name of a person the entry credits, such as 'Jane Doe'.
             input_data: Kind of data an entry takes as input, such as 'Short-read sequencing data'.
             input_format: File format an entry takes as input, such as 'FASTQ'.
@@ -211,8 +211,8 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         """
         body = _query(
             query,
-            entry_type=entry_type,
-            descriptor_type=descriptor_type,
+            entry_type=type,
+            language=language,
             facets={
                 ("all_authors.name",): author,
                 _category_fields("input-data"): input_data,
@@ -246,7 +246,7 @@ def _query(
     query: str | None,
     *,
     entry_type: EntryType | None,
-    descriptor_type: DescriptorLanguage | None,
+    language: DescriptorLanguage | None,
     facets: dict[tuple[str, ...], str | None],
     sort_by: SortBy,
     sort_order: SortOrder,
@@ -259,9 +259,9 @@ def _query(
     filters: list[dict[str, Any]] = []
     if entry_type is not None:
         filters.append({"term": {"entryTypeMetadata.type.keyword": entry_type.value.upper()}})
-    if descriptor_type is not None:
+    if language is not None:
         # A tool lists every language it has a descriptor in; a term matches any of them.
-        filters.append({"term": {"descriptorType": descriptor_type.dockstore_value}})
+        filters.append({"term": {"descriptorType": language.dockstore_value}})
     filters.extend(
         {"query_string": {"query": _escape_slashes(value), "fields": list(fields), "default_operator": "AND"}}
         for fields, value in facets.items()
@@ -419,8 +419,8 @@ def _to_summary(hit: Any) -> EntrySummary | None:
         return None
     return EntrySummary(
         id=str(identifier),
-        entry_type=entry_type,
-        descriptor_type=_descriptor_type(source.get("descriptorType")),
+        type=entry_type,
+        language=_language(source.get("descriptorType")),
         name=_first_of(source, "workflowName", "toolname", "repository", "name") or path,
         # An entry indexed without its TRS identifier has one made from its path, behind its type's prefix.
         trs_id=source.get("trsId") or f"{metadata.get('trsPrefix') or ''}{path}",

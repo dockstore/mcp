@@ -101,8 +101,8 @@ class EntrySummary(BaseModel):
     """The handful of fields that identify an entry in a list of search results."""
 
     id: str = Field(description="Dockstore identifier for the entry; pass this to get_entry.")
-    entry_type: EntryType = Field(description="Which kind of entry this is.")
-    descriptor_type: DescriptorLanguage | None = Field(
+    type: EntryType = Field(description="Which kind of entry this is.")
+    language: DescriptorLanguage | None = Field(
         default=None, description="Language the entry's descriptor is written in."
     )
     name: str = Field(description="Display name of the entry.")
@@ -151,8 +151,8 @@ class Entry(BaseModel):
     """
 
     id: str | None = Field(default=None, description="Dockstore identifier for the entry.")
-    entry_type: EntryType | None = Field(default=None, description="Which kind of entry this is.")
-    descriptor_type: DescriptorLanguage | None = Field(
+    type: EntryType | None = Field(default=None, description="Which kind of entry this is.")
+    language: DescriptorLanguage | None = Field(
         default=None, description="Language the entry's descriptor is written in."
     )
     name: str | None = Field(default=None, description="Display name of the entry.")
@@ -199,7 +199,7 @@ class Version(_Sparse):
     name: str | None = Field(default=None, description="Version name, usually a tag or branch.")
     trs_id: str | None = Field(default=None, description="GA4GH TRS identifier, for use against the TRS API.")
     reference: str | None = Field(default=None, description="Source control reference the version was built from.")
-    descriptor_type: DescriptorLanguage | None = Field(
+    language: DescriptorLanguage | None = Field(
         default=None, description="Language this version's descriptor is written in."
     )
     descriptor_path: str | None = Field(default=None, description="Path of the primary descriptor within the version.")
@@ -235,7 +235,7 @@ class VersionField(StrEnum):
     NAME = "name"
     TRS_ID = "trs_id"
     REFERENCE = "reference"
-    DESCRIPTOR_TYPE = "descriptor_type"
+    LANGUAGE = "language"
     DESCRIPTOR_PATH = "descriptor_path"
     FILE_PATHS = "file_paths"
     IS_VALID = "is_valid"

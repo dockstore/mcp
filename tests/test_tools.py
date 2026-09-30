@@ -54,8 +54,8 @@ IMPLEMENTED: list[tuple[str, dict[str, Any]]] = [
         "search_entries",
         {
             "query": "rna-seq",
-            "entry_type": "workflow",
-            "descriptor_type": "WDL",
+            "type": "workflow",
+            "language": "WDL",
             "author": "Jane Doe",
             "input_data": "Short-read sequencing data",
             "input_format": "FASTQ",
@@ -95,8 +95,8 @@ async def test_search_takes_every_facet(client: Client[Any]) -> None:
     schema = await _schema(client, "search_entries")
     assert set(schema["properties"]) == {
         "query",
-        "entry_type",
-        "descriptor_type",
+        "type",
+        "language",
         "author",
         "input_data",
         "input_format",
@@ -137,7 +137,7 @@ async def test_get_entry_limits_by_default(client: Client[Any]) -> None:
     properties = (await _schema(client, "get_entry"))["properties"]
     assert set(properties) == {"entry_id", "description_limit", "version_limit"}
     assert properties["description_limit"]["default"] == 5000
-    assert properties["version_limit"]["default"] == 10
+    assert properties["version_limit"]["default"] == 20
 
 
 @pytest.mark.parametrize("parameter", ["description_limit", "version_limit"])
@@ -164,8 +164,8 @@ async def _get_entry(client: Client[Any], **arguments: Any) -> Any:
 async def test_get_entry_summarizes_a_workflow(client: Client[Any]) -> None:
     entry = await _get_entry(client, entry_id="16247")
     assert entry.id == "16247"
-    assert entry.entry_type == EntryType.WORKFLOW
-    assert entry.descriptor_type == DescriptorLanguage.GALAXY
+    assert entry.type == EntryType.WORKFLOW
+    assert entry.language == DescriptorLanguage.GALAXY
     assert entry.name == "COVID-19-ARTIC-ILLUMINA"
     assert entry.organization == "iwc-workflows"
     assert entry.authors == ["IWC"]  # The author with no name is dropped.
@@ -199,7 +199,7 @@ async def test_get_entry_returns_every_field(client: Client[Any], dockstore: Fak
         "/api/entries/16247/categories",
     ]
     assert "include" not in dockstore.requests[0].url.params
-    assert dict(dockstore.requests[1].url.params) == {"limit": "10"}
+    assert dict(dockstore.requests[1].url.params) == {"limit": "20"}
 
 
 def _many_versions(count: int) -> list[dict[str, Any]]:
@@ -218,9 +218,9 @@ def _many_versions(count: int) -> list[dict[str, Any]]:
 async def test_get_entry_limits_to_the_first_versions_in_dockstores_order(
     client: Client[Any], dockstore: FakeDockstore
 ) -> None:
-    dockstore.workflow_versions = _many_versions(15)
+    dockstore.workflow_versions = _many_versions(25)
     entry = await _get_entry(client, entry_id="16247")
-    assert [version.name for version in entry.versions] == [f"v{number}" for number in range(10)]
+    assert [version.name for version in entry.versions] == [f"v{number}" for number in range(20)]
 
 
 async def test_get_entry_takes_a_smaller_version_limit(client: Client[Any], dockstore: FakeDockstore) -> None:
@@ -296,7 +296,7 @@ async def test_get_entry_returns_the_whole_description_without_a_limit(
 async def test_get_entry_finds_a_tool_too(client: Client[Any]) -> None:
     """Tools are not served by the endpoint that answers for everything else."""
     entry = await _get_entry(client, entry_id="188")
-    assert entry.entry_type == EntryType.TOOL
+    assert entry.type == EntryType.TOOL
     assert entry.name == "pcawg-dkfz-workflow"
     assert entry.registry == "quay.io"
     assert entry.url == "https://staging.dockstore.org/containers/quay.io/pancancer/pcawg-dkfz-workflow"
@@ -305,7 +305,7 @@ async def test_get_entry_finds_a_tool_too(client: Client[Any]) -> None:
 async def test_get_entry_reads_a_tools_differently_spelled_fields(client: Client[Any]) -> None:
     entry = await _get_entry(client, entry_id="188")
     assert entry.organization == "pancancer"  # A tool calls this its namespace.
-    assert entry.descriptor_type == DescriptorLanguage.CWL  # A tool can have several.
+    assert entry.language == DescriptorLanguage.CWL  # A tool can have several.
     assert entry.source_control == "github.com"  # Only a workflow states this outright.
     assert entry.star_count == 0
 
@@ -395,8 +395,8 @@ async def test_search_summarizes_each_hit(client: Client[Any], dockstore: FakeDo
     workflow, tool = results["entries"]
     assert workflow == {
         "id": "16247",
-        "entry_type": "workflow",
-        "descriptor_type": "galaxy",
+        "type": "workflow",
+        "language": "galaxy",
         "name": "COVID-19-ARTIC-ILLUMINA",
         "trs_id": "#workflow/github.com/iwc-workflows/sars-cov-2-variant-calling/COVID-19-ARTIC-ILLUMINA",
         "topic": "Variant calling from SARS-CoV-2 paired-end Illumina ARTIC data.",
@@ -410,7 +410,7 @@ async def test_search_summarizes_each_hit(client: Client[Any], dockstore: FakeDo
         "output_data": ["Variant call data"],
         "updated_at": "2026-05-13T15:33:42Z",
     }
-    assert (tool["id"], tool["entry_type"], tool["descriptor_type"]) == ("188", "tool", "CWL")
+    assert (tool["id"], tool["type"], tool["language"]) == ("188", "tool", "CWL")
     assert (tool["name"], tool["trs_id"]) == ("pcawg-dkfz-workflow", "quay.io/pancancer/pcawg-dkfz-workflow")
     assert tool["updated_at"] == "2022-03-31T21:37:31.404000Z"
     # An entry filed under no categories has an empty list for each facet.
@@ -439,7 +439,7 @@ async def test_search_with_no_arguments_matches_everything(client: Client[Any], 
 async def test_search_filters_galaxy_by_the_name_dockstore_indexes(
     client: Client[Any], dockstore: FakeDockstore
 ) -> None:
-    _, body = await _search(client, dockstore, descriptor_type="galaxy")
+    _, body = await _search(client, dockstore, language="galaxy")
     assert body["query"]["bool"]["filter"] == [{"term": {"descriptorType": "gxformat2"}}]
 
 
@@ -480,7 +480,7 @@ async def test_search_ignores_blank_arguments(client: Client[Any], dockstore: Fa
 
 async def test_search_filters_apptools_by_their_own_type(client: Client[Any], dockstore: FakeDockstore) -> None:
     """Apptools share an index with tools, so the index alone cannot tell them apart."""
-    _, body = await _search(client, dockstore, entry_type="apptool")
+    _, body = await _search(client, dockstore, type="apptool")
     assert body["query"]["bool"]["filter"] == [{"term": {"entryTypeMetadata.type.keyword": "APPTOOL"}}]
 
 
@@ -588,7 +588,7 @@ async def test_search_reports_syntax_dockstore_rejects(client: Client[Any], dock
 async def test_search_refuses_services(client: Client[Any], dockstore: FakeDockstore) -> None:
     async with client:
         with pytest.raises(ToolError, match="does not index services"):
-            await client.call_tool("search_entries", {"entry_type": "service"})
+            await client.call_tool("search_entries", {"type": "service"})
     assert dockstore.requests == []
 
 
