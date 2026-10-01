@@ -23,9 +23,6 @@ Entries and versions are identified as GA4GH TRS identifies them: an entry by it
 TRS identifier ('#workflow/github.com/org/repo/name' or, for a tool,
 'quay.io/org/repo'), and a version by its entry's TRS identifier and its name,
 joined by a colon ('#workflow/github.com/org/repo/name:v1.0').
-
-TODO: ``get_file`` is still scaffolding and raises ``NotImplementedError`` until
-it is wired up to the Dockstore API.
 """
 
 import asyncio
@@ -178,7 +175,7 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         return _to_version(version, files, trs_id, settings, file_limit=file_limit)
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    def get_file(
+    async def get_file(
         version_id: str,
         path: str,
         content_limit: Annotated[int | None, Field(ge=1)] = DEFAULT_CONTENT_LIMIT,
@@ -199,10 +196,9 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         Returns:
             The file.
         """
-        _version_identifier(version_id)
-        # TODO: fetch the file from the Dockstore API, cutting its content short
-        # at content_limit with _truncate.
-        raise NotImplementedError("get_file is not implemented yet")
+        trs_id, name = _version_identifier(version_id)
+        listed, wrapper = await _fetch_file(api, trs_id, name, path)
+        return _to_file(listed, wrapper, content_limit=content_limit)
 
 
 def _identifier(entry_id: str) -> str:
@@ -310,12 +306,53 @@ async def _fetch_trs_files(api: DockstoreApi, trs_id: str, name: str) -> list[tu
     TRS lists a version's files one descriptor type at a time, and reports which
     types a version has from the descriptors it actually holds.
     """
-    endpoint = f"/ga4gh/trs/v2/tools/{quote(trs_id, safe='')}/versions/{quote(name, safe='')}"
+    endpoint = _trs_version_endpoint(trs_id, name)
     tool_version = await api.get_object(endpoint)
     types = tool_version.get("descriptor_type")
     types = [type_ for type_ in types if isinstance(type_, str)] if isinstance(types, list) else []
     listings = await asyncio.gather(*(api.get_list(f"{endpoint}/{type_}/files") for type_ in types))
     return list(zip(types, listings, strict=True))
+
+
+async def _fetch_file(api: DockstoreApi, trs_id: str, name: str, path: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Fetch how TRS lists a version's file, and the file itself.
+
+    The listing says what kind of file it is; the file comes from TRS's descriptor
+    endpoint, which serves any of a version's files by its path, under the first
+    descriptor type that lists it.
+    """
+    trs_version_id = f"{trs_id}:{name}"
+    try:
+        files_by_type = await _fetch_trs_files(api, trs_id, name)
+    except NotFoundError:
+        raise NotFoundError(
+            f"Dockstore has no published version with TRS identifier '{trs_version_id}'. "
+            "Use get_entry to list an entry's versions and their identifiers."
+        ) from None
+    match = next(
+        (
+            (type_, file)
+            for type_, files in files_by_type
+            for file in files
+            if isinstance(file, dict) and file.get("path") == path
+        ),
+        None,
+    )
+    if match is None:
+        raise NotFoundError(
+            f"Version '{trs_version_id}' has no file at '{path}'. "
+            "Use get_version to list the version's files and their paths."
+        )
+    type_, listed = match
+    endpoint = _trs_version_endpoint(trs_id, name)
+    # The path goes in the request as a single segment, slashes and all.
+    wrapper = await api.get_object(f"{endpoint}/{type_}/descriptor/{quote(path, safe='')}")
+    return listed, wrapper
+
+
+def _trs_version_endpoint(trs_id: str, name: str) -> str:
+    """Where TRS serves a version, with the entry's identifier and the version name each as one segment."""
+    return f"/ga4gh/trs/v2/tools/{quote(trs_id, safe='')}/versions/{quote(name, safe='')}"
 
 
 def _dockstore_id(payload: dict[str, Any]) -> str:
@@ -443,6 +480,35 @@ def _to_version(
         "url": _version_url(trs_id, name, settings),
     }
     return Version.model_validate(values)
+
+
+def _to_file(listed: dict[str, Any], wrapper: dict[str, Any], *, content_limit: int | None) -> File:
+    """Map TRS's listing of a file and the file itself onto a :class:`File`, trimmed to the limit given."""
+    file_type = listed.get("file_type")
+    values: dict[str, Any] = {
+        "path": listed.get("path"),
+        "absolute_path": wrapper.get("dockstore_absolute_path") or listed.get("dockstore_absolute_path"),
+        "file_type": file_type.lower() if isinstance(file_type, str) else None,
+        "content": _truncate(wrapper.get("content"), content_limit),
+        # The file lists its checksums, where the listing has room for only one.
+        "checksums": _checksums(wrapper.get("checksum")) or _checksums([listed.get("checksum")]),
+        "url": wrapper.get("url"),
+    }
+    return File.model_validate(values)
+
+
+def _checksums(checksums: Any) -> dict[str, str] | None:
+    """Key TRS's checksums by the algorithm each was made with."""
+    if not isinstance(checksums, list):
+        return None
+    keyed = {
+        checksum["type"]: checksum["checksum"]
+        for checksum in checksums
+        if isinstance(checksum, dict)
+        and isinstance(checksum.get("type"), str)
+        and isinstance(checksum.get("checksum"), str)
+    }
+    return keyed or None
 
 
 def _version_doi(payload: dict[str, Any]) -> str | None:

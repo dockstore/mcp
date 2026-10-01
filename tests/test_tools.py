@@ -13,11 +13,9 @@
 #    limitations under the License.
 """Tests for the Dockstore lookup tools.
 
-One of the tools is still scaffolding, so the tests for it cover the shape of
-what is advertised to a client, plus the fact that calling it fails cleanly
-rather than returning something made up.  ``get_entry``, ``get_version``, and
-``search_entries`` are implemented, and are exercised against the canned Dockstore
-in :mod:`tests.fake_dockstore`.
+The tools are exercised against the canned Dockstore in
+:mod:`tests.fake_dockstore`, and the shape of what each advertises to a client is
+checked too.
 """
 
 from datetime import UTC, datetime
@@ -32,6 +30,7 @@ from dockstore_mcp.models import (
     DescriptorLanguage,
     Entry,
     EntryType,
+    File,
     ReferenceType,
     Version,
 )
@@ -39,6 +38,7 @@ from fake_dockstore import (
     CATEGORIES,
     SEARCH_HITS,
     TOOL,
+    TOOL_FILES,
     WORKFLOW,
     WORKFLOW_FILES,
     FakeDockstore,
@@ -51,13 +51,8 @@ TOOL_ID = TOOL["trsId"]
 #: The TRS identifier of the canned workflow's default version.
 VERSION_ID = f"{WORKFLOW_ID}:v0.5.2"
 
-#: Every tool that is scaffolded but not implemented, with valid arguments.
-UNIMPLEMENTED: list[tuple[str, dict[str, Any]]] = [
-    ("get_file", {"version_id": VERSION_ID, "path": "Dockstore.cwl"}),
-]
-
-#: Arguments that reach the canned Dockstore, for the tools that are implemented.
-IMPLEMENTED: list[tuple[str, dict[str, Any]]] = [
+#: Arguments that reach the canned Dockstore, for each tool.
+ARGUMENTS: list[tuple[str, dict[str, Any]]] = [
     ("get_entry", {"entry_id": WORKFLOW_ID}),
     (
         "search_entries",
@@ -78,6 +73,7 @@ IMPLEMENTED: list[tuple[str, dict[str, Any]]] = [
         },
     ),
     ("get_version", {"version_id": VERSION_ID, "file_limit": 10}),
+    ("get_file", {"version_id": VERSION_ID, "path": "pe-artic-variation.ga", "content_limit": 10}),
 ]
 
 
@@ -87,14 +83,7 @@ async def _schema(client: Client[Any], name: str) -> dict[str, Any]:
     return next(tool.input_schema for tool in tools if tool.name == name)
 
 
-@pytest.mark.parametrize(("name", "arguments"), UNIMPLEMENTED)
-async def test_tools_are_not_implemented_yet(client: Client[Any], name: str, arguments: dict[str, Any]) -> None:
-    async with client:
-        with pytest.raises(ToolError, match="not implemented"):
-            await client.call_tool(name, arguments)
-
-
-@pytest.mark.parametrize(("name", "arguments"), UNIMPLEMENTED + IMPLEMENTED)
+@pytest.mark.parametrize(("name", "arguments"), ARGUMENTS)
 async def test_tools_accept_their_arguments(client: Client[Any], name: str, arguments: dict[str, Any]) -> None:
     """A schema mismatch would fail as a validation error instead of a missing body."""
     schema = await _schema(client, name)
@@ -163,7 +152,9 @@ async def test_get_file_limits_by_default(client: Client[Any]) -> None:
 async def test_get_file_rejects_a_limit_below_one(client: Client[Any]) -> None:
     async with client:
         with pytest.raises(ToolError, match="content_limit"):
-            await client.call_tool("get_file", {"version_id": VERSION_ID, "path": "Dockstore.cwl", "content_limit": 0})
+            await client.call_tool(
+                "get_file", {"version_id": VERSION_ID, "path": "pe-artic-variation.ga", "content_limit": 0}
+            )
 
 
 async def test_get_entry_limits_by_default(client: Client[Any]) -> None:
@@ -547,6 +538,89 @@ async def test_get_version_ignores_surrounding_whitespace(client: Client[Any]) -
     assert version.id == VERSION_ID
 
 
+async def _get_file(client: Client[Any], **arguments: Any) -> Any:
+    """Call get_file and return the file the client rebuilt from the response."""
+    async with client:
+        result = await client.call_tool("get_file", arguments)
+    return result.data
+
+
+async def test_get_file_returns_every_field(client: Client[Any], dockstore: FakeDockstore) -> None:
+    dockstore.file_contents = {"pe-artic-variation.ga": '{"a_galaxy_workflow": "true"}'}
+    async with client:
+        result = await client.call_tool("get_file", {"version_id": VERSION_ID, "path": "pe-artic-variation.ga"})
+    assert result.structured_content is not None
+    assert set(result.structured_content) == set(File.model_fields)
+    file = result.data
+    assert file.path == "pe-artic-variation.ga"
+    assert file.absolute_path == "/pe-artic-variation.ga"
+    assert file.file_type == "primary_descriptor"
+    assert file.content == '{"a_galaxy_workflow": "true"}'
+    assert file.checksums == {"sha-256": "ab12"}
+    assert file.url == "https://raw.githubusercontent.com/example/repo/main/pe-artic-variation.ga"
+    assert dockstore.paths() == [
+        TRS_VERSION_PATH,
+        f"{TRS_VERSION_PATH}/GALAXY/files",
+        f"{TRS_VERSION_PATH}/GALAXY/descriptor/pe-artic-variation.ga",
+    ]
+
+
+async def test_get_file_reads_a_file_that_is_not_a_descriptor(client: Client[Any]) -> None:
+    file = await _get_file(client, version_id=VERSION_ID, path="pe-artic-variation-tests.yml")
+    assert file.file_type == "test_file"
+    assert file.content == "# pe-artic-variation-tests.yml\n"
+    assert file.checksums is None
+
+
+async def test_get_file_takes_a_content_limit(client: Client[Any], dockstore: FakeDockstore) -> None:
+    dockstore.file_contents = {"pe-artic-variation.ga": "x" * 60_000}
+    arguments = {"version_id": VERSION_ID, "path": "pe-artic-variation.ga"}
+    content = (await _get_file(client, **arguments)).content
+    assert (len(content), content[-1]) == (50_000, "…")
+    assert (await _get_file(client, **arguments, content_limit=10)).content == "x" * 9 + "…"
+    assert (await _get_file(client, **arguments, content_limit=None)).content == "x" * 60_000
+
+
+async def test_get_file_sends_a_nested_path_as_one_segment(client: Client[Any], dockstore: FakeDockstore) -> None:
+    nested = {
+        "path": "../tools/align.cwl",
+        "dockstore_absolute_path": "/tools/align.cwl",
+        "file_type": "SECONDARY_DESCRIPTOR",
+    }
+    dockstore.workflow_files = {"GALAXY": [*WORKFLOW_FILES, nested]}
+    file = await _get_file(client, version_id=VERSION_ID, path="../tools/align.cwl")
+    assert (file.path, file.absolute_path) == ("../tools/align.cwl", "/tools/align.cwl")
+    assert dockstore.paths()[-1] == f"{TRS_VERSION_PATH}/GALAXY/descriptor/..%2Ftools%2Falign.cwl"
+
+
+async def test_get_file_finds_a_tools_file_under_its_first_language(
+    client: Client[Any], dockstore: FakeDockstore
+) -> None:
+    file = await _get_file(client, version_id=f"{TOOL_ID}:2.2.0", path="Dockerfile")
+    assert file.file_type == "containerfile"
+    assert file.absolute_path == TOOL_FILES["CWL"][0]["dockstore_absolute_path"]
+    assert dockstore.paths()[-1].endswith("/versions/2.2.0/CWL/descriptor/Dockerfile")
+
+
+async def test_get_file_finds_a_tools_second_language_descriptor(client: Client[Any], dockstore: FakeDockstore) -> None:
+    file = await _get_file(client, version_id=f"{TOOL_ID}:2.2.0", path="Dockstore.wdl")
+    assert file.file_type == "primary_descriptor"
+    assert dockstore.paths()[-1].endswith("/versions/2.2.0/WDL/descriptor/Dockstore.wdl")
+
+
+async def test_get_file_reports_a_file_that_is_not_there(client: Client[Any], dockstore: FakeDockstore) -> None:
+    async with client:
+        with pytest.raises(ToolError, match=r"has no file at 'Dockstore\.cwl'.*get_version"):
+            await client.call_tool("get_file", {"version_id": VERSION_ID, "path": "Dockstore.cwl"})
+    assert not any("/descriptor/" in path for path in dockstore.paths())
+
+
+async def test_get_file_reports_a_version_that_is_not_there(client: Client[Any]) -> None:
+    async with client:
+        with pytest.raises(ToolError, match=r"no published version with TRS identifier '.*:v9'.*get_entry"):
+            await client.call_tool("get_file", {"version_id": f"{WORKFLOW_ID}:v9", "path": "pe-artic-variation.ga"})
+
+
 async def _search(client: Client[Any], dockstore: FakeDockstore, **arguments: Any) -> tuple[Any, dict[str, Any]]:
     """Call search_entries and return its structured result and the query Dockstore was sent."""
     async with client:
@@ -620,7 +694,7 @@ async def test_search_filters_galaxy_by_the_name_dockstore_indexes(
 
 
 async def test_search_turns_each_facet_into_a_filter(client: Client[Any], dockstore: FakeDockstore) -> None:
-    arguments = {name: value for name, value in IMPLEMENTED[1][1].items() if name != "query"}
+    arguments = {name: value for name, value in ARGUMENTS[1][1].items() if name != "query"}
     _, body = await _search(client, dockstore, **arguments)
     assert "must" not in body["query"]["bool"]
     assert body["query"]["bool"]["filter"] == [

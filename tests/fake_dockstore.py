@@ -22,7 +22,7 @@ descriptor languages, and a tool that only implies where its source lives.
 
 import json
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx2
 
@@ -296,6 +296,8 @@ class FakeDockstore:
         self.workflow_versions: list[dict[str, Any]] = WORKFLOW_VERSIONS
         #: What TRS lists as the files of the workflow's default version, by descriptor type.
         self.workflow_files: dict[str, list[dict[str, Any]]] = {"GALAXY": WORKFLOW_FILES}
+        #: What TRS serves as the content of a file, by path; any other listed file holds a line naming itself.
+        self.file_contents: dict[str, str] = {}
 
     @property
     def transport(self) -> httpx2.MockTransport:
@@ -359,16 +361,37 @@ class FakeDockstore:
             return httpx2.Response(404, json={"code": 404, "message": "Version not found."})
         return httpx2.Response(200, json=version)
 
-    @staticmethod
-    def _trs_version(path: str, endpoint: str, files: dict[str, list[dict[str, Any]]]) -> httpx2.Response:
+    def _trs_version(self, path: str, endpoint: str, files: dict[str, list[dict[str, Any]]]) -> httpx2.Response:
         """Answer for a TRS tool version, which reports a descriptor type for each listing of files it has."""
         rest = path.removeprefix(endpoint)
         if not rest:
             return httpx2.Response(200, json={"name": endpoint.rpartition("/")[2], "descriptor_type": list(files)})
         type_, _, files_path = rest.removeprefix("/").partition("/")
-        if files_path != "files" or type_ not in files:
+        if type_ not in files:
             return httpx2.Response(404, json={"code": 404, "message": "Not found."})
-        return httpx2.Response(200, json=files[type_])
+        if files_path == "files":
+            return httpx2.Response(200, json=files[type_])
+        if files_path.startswith("descriptor/"):
+            return self._trs_file(unquote(files_path.removeprefix("descriptor/")), files)
+        return httpx2.Response(404, json={"code": 404, "message": "Not found."})
+
+    def _trs_file(self, relative_path: str, files: dict[str, list[dict[str, Any]]]) -> httpx2.Response:
+        """Answer for one of a version's files, which TRS serves under any of the version's descriptor types."""
+        listed = next((file for listing in files.values() for file in listing if file["path"] == relative_path), None)
+        if listed is None:
+            # Dockstore answers this one with an HTML page, not JSON.
+            return httpx2.Response(404, text="<html>version found, but file not found</html>")
+        checksum = listed.get("checksum")
+        return httpx2.Response(
+            200,
+            json={
+                "content": self.file_contents.get(relative_path, f"# {relative_path}\n"),
+                "checksum": [checksum] if checksum else [],
+                "dockstore_absolute_path": listed.get("dockstore_absolute_path"),
+                "image_type": {},
+                "url": f"https://raw.githubusercontent.com/example/repo/main/{relative_path}",
+            },
+        )
 
     @staticmethod
     def _entry(payload: dict[str, Any], versions: list[dict[str, Any]], wants_versions: bool) -> httpx2.Response:

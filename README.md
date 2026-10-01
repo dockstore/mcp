@@ -13,9 +13,7 @@ MCP, so it is deployed alongside the Dockstore webservice rather than inside it.
 
 It is built on [FastMCP](https://gofastmcp.com) 4 and ships as a container image.
 
-> **Status: early.** `hello`, `search_entries`, `get_entry`, and `get_version` work.
-> `get_file` is declared — name, arguments, and response shape — but it raises
-> `NotImplementedError` until it is wired up to the Dockstore API.
+> **Status: early.** `hello`, `search_entries`, `get_entry`, `get_version`, and `get_file` work.
 
 ## Requirements
 
@@ -131,8 +129,7 @@ and does not check PyPI for updates on startup; see the
 | `get_version`    | Retrieves one version of an entry, with its file paths limited by default.        |
 | `get_file`       | Retrieves one file belonging to a version, with its content limited by default.   |
 
-`get_file` is scaffolding and is not implemented yet. The four
-form a chain: `search_entries` yields entry identifiers, an entry yields
+The four form a chain: `search_entries` yields entry identifiers, an entry yields
 its versions, and a version yields file paths. `get_entry` returns at most
 `version_limit` versions (20 by default), in the order Dockstore ranks them (the default
 version first), and at most `description_limit` characters of the description (5,000 by
@@ -175,6 +172,12 @@ Alongside that, it asks TRS (`/api/ga4gh/trs/v2/tools/{id}/versions/{version_id}
 descriptor types the version has, and lists the files for each type from
 `.../{type}/files`. File paths are the relative paths TRS reports, merged across types,
 and the language is that of the first type whose listing includes a primary descriptor.
+
+`get_file` takes a version's TRS identifier and a path from `get_version`. It lists the
+version's files from TRS the same way, finds the first descriptor type whose listing has
+the path, which says what kind of file it is, and then reads the file from
+`.../{type}/descriptor/{relative_path}`, with the path percent-encoded as one segment.
+That endpoint serves any of a version's files, not only descriptors.
 
 ## Layout
 
