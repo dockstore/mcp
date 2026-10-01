@@ -154,10 +154,17 @@ along with the total number that matched. Each result carries the entry's catego
 EDAM facets as the index files them, so they cost no extra request. Services are not indexed, so they cannot be
 searched for.
 
-`get_entry` takes the numeric identifier Dockstore gives an entry and reads it from
-the webservice, trying the workflow endpoint first and the tool endpoint second, since
-only tools are served by the latter. It then fetches the categories the entry is
-filed under, from which it derives the entry's EDAM facets.
+Entries and versions are identified by their GA4GH TRS identifiers, which every tool
+reports as `id`. An entry's is its path behind a prefix naming its kind
+(`#workflow/github.com/org/repo/name`, `#notebook/…`, `#service/…`), or its bare path for a
+tool or an apptool (`quay.io/org/repo`). A version's is its entry's TRS identifier and its
+name joined by a colon (`#workflow/github.com/org/repo/name:v1.0`).
+
+`get_entry` takes an entry's TRS identifier and reads the entry from the webservice by
+its path. The prefix says which kind of entry the workflow endpoint should look for; an
+identifier with no prefix is looked for among tools first and apptools second, since the
+two share that form. It then fetches the categories the entry is filed under, from which
+it derives the entry's EDAM facets.
 
 ## Layout
 

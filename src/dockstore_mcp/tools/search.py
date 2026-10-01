@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 from dockstore_mcp.api import BadRequestError, DockstoreApi
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import DescriptorLanguage, EntrySummary, EntryType, SortBy, SortOrder
-from dockstore_mcp.tools.entries import _entry_type, _first_of, _language, _timestamp
+from dockstore_mcp.tools.entries import _entry_type, _first_of, _language, _timestamp, _trs_id
 
 __all__ = ["DEFAULT_LIMIT", "MAX_LIMIT", "SEARCH_PATH", "SearchResults", "register"]
 
@@ -411,19 +411,18 @@ def _to_summary(hit: Any) -> EntrySummary | None:
     metadata = source.get("entryTypeMetadata")
     metadata = metadata if isinstance(metadata, dict) else {}
     entry_type = _entry_type(metadata.get("type"))
-    path = _first_of(source, "full_workflow_path", "tool_path")
-    # A document's own id field is always 0; Dockstore files it under the entry's identifier.
-    identifier = hit.get("_id")
-    if not identifier or entry_type is None or not path:
-        logger.debug("Skipping a search hit that cannot be identified: %r", identifier)
+    # An entry indexed without its TRS identifier has one made from its path.
+    trs_id = _trs_id(source)
+    if entry_type is None or trs_id is None:
+        logger.debug("Skipping a search hit that cannot be identified: %r", hit.get("_id"))
         return None
     return EntrySummary(
-        id=str(identifier),
+        id=trs_id,
         type=entry_type,
         language=_language(source.get("descriptorType")),
-        name=_first_of(source, "workflowName", "toolname", "repository", "name") or path,
-        # An entry indexed without its TRS identifier has one made from its path, behind its type's prefix.
-        trs_id=source.get("trsId") or f"{metadata.get('trsPrefix') or ''}{path}",
+        name=_first_of(source, "workflowName", "toolname", "repository", "name")
+        or _first_of(source, "full_workflow_path", "tool_path")
+        or trs_id,
         topic=source.get("topicAutomatic"),
         **{field: _display_names(source.get(facet)) for facet, field in _FACET_FIELDS.items()},
         updated_at=_timestamp(

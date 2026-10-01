@@ -98,13 +98,12 @@ class SortOrder(StrEnum):
 class EntrySummary(BaseModel):
     """The handful of fields that identify an entry in a list of search results."""
 
-    id: str = Field(description="Dockstore identifier for the entry; pass this to get_entry.")
+    id: str = Field(description="GA4GH TRS identifier for the entry; pass this to get_entry.")
     type: EntryType = Field(description="Which kind of entry this is.")
     language: DescriptorLanguage | None = Field(
         default=None, description="Language the entry's descriptor is written in."
     )
     name: str = Field(description="Display name of the entry.")
-    trs_id: str = Field(description="GA4GH TRS identifier, for use against the TRS API.")
     topic: str | None = Field(default=None, description="One-line description of what the entry does.")
     categories: list[str] = Field(default_factory=list, description="Categories the entry has been placed in.")
     subject_areas: list[str] = Field(default_factory=list, description="Subject areas the entry works in.")
@@ -119,7 +118,10 @@ class EntrySummary(BaseModel):
 class VersionSummary(BaseModel):
     """The handful of fields that identify one of an entry's versions."""
 
-    id: str = Field(description="Dockstore identifier for the version; pass this to get_version.")
+    id: str = Field(
+        description="GA4GH TRS identifier for the version: the entry's TRS identifier and the version name, "
+        "joined by a colon; pass this to get_version."
+    )
     name: str | None = Field(default=None, description="Version name, usually a tag or branch.")
     reference_type: ReferenceType | None = Field(
         default=None, description="Whether the version was built from a tag, a branch, or a commit."
@@ -134,14 +136,13 @@ class Entry(BaseModel):
     kind of entry.
     """
 
-    id: str | None = Field(default=None, description="Dockstore identifier for the entry.")
+    id: str | None = Field(default=None, description="GA4GH TRS identifier for the entry.")
     type: EntryType | None = Field(default=None, description="Which kind of entry this is.")
     language: DescriptorLanguage | None = Field(
         default=None, description="Language the entry's descriptor is written in."
     )
     name: str | None = Field(default=None, description="Display name of the entry.")
     organization: str | None = Field(default=None, description="Organization the entry belongs to.")
-    trs_id: str | None = Field(default=None, description="GA4GH TRS identifier, for use against the TRS API.")
     topic: str | None = Field(default=None, description="One-line description of what the entry does.")
     description: str | None = Field(
         default=None, description="Long description, usually the README; cut short past get_entry's description_limit."
@@ -178,10 +179,13 @@ class Version(BaseModel):
     kind of entry.
     """
 
-    id: str | None = Field(default=None, description="Dockstore identifier for the version.")
-    entry_id: str | None = Field(default=None, description="Identifier of the entry this version belongs to.")
+    id: str | None = Field(
+        default=None,
+        description="GA4GH TRS identifier for the version: the entry's TRS identifier and the version name, "
+        "joined by a colon.",
+    )
+    entry_id: str | None = Field(default=None, description="GA4GH TRS identifier of the entry this version belongs to.")
     name: str | None = Field(default=None, description="Version name, usually a tag or branch.")
-    trs_id: str | None = Field(default=None, description="GA4GH TRS identifier, for use against the TRS API.")
     reference: str | None = Field(default=None, description="Source control reference the version was built from.")
     language: DescriptorLanguage | None = Field(
         default=None, description="Language this version's descriptor is written in."

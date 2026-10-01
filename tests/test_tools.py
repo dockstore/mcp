@@ -33,17 +33,24 @@ from dockstore_mcp.models import (
     EntryType,
     ReferenceType,
 )
-from fake_dockstore import CATEGORIES, SEARCH_HITS, WORKFLOW, FakeDockstore
+from fake_dockstore import CATEGORIES, SEARCH_HITS, TOOL, WORKFLOW, FakeDockstore
+
+#: The TRS identifiers of the canned workflow and tool.
+WORKFLOW_ID = WORKFLOW["trsId"]
+TOOL_ID = TOOL["trsId"]
+
+#: The TRS identifier of the canned workflow's default version.
+VERSION_ID = f"{WORKFLOW_ID}:v0.5.2"
 
 #: Every tool that is scaffolded but not implemented, with valid arguments.
 UNIMPLEMENTED: list[tuple[str, dict[str, Any]]] = [
-    ("get_version", {"version_id": "a-version"}),
-    ("get_file", {"version_id": "a-version", "path": "Dockstore.cwl"}),
+    ("get_version", {"version_id": VERSION_ID}),
+    ("get_file", {"version_id": VERSION_ID, "path": "Dockstore.cwl"}),
 ]
 
 #: Arguments that reach the canned Dockstore, for the tools that are implemented.
 IMPLEMENTED: list[tuple[str, dict[str, Any]]] = [
-    ("get_entry", {"entry_id": "16247"}),
+    ("get_entry", {"entry_id": WORKFLOW_ID}),
     (
         "search_entries",
         {
@@ -135,7 +142,7 @@ async def test_get_version_limits_by_default(client: Client[Any]) -> None:
 async def test_get_version_rejects_a_limit_below_one(client: Client[Any]) -> None:
     async with client:
         with pytest.raises(ToolError, match="file_limit"):
-            await client.call_tool("get_version", {"version_id": "a-version", "file_limit": 0})
+            await client.call_tool("get_version", {"version_id": VERSION_ID, "file_limit": 0})
 
 
 async def test_get_file_limits_by_default(client: Client[Any]) -> None:
@@ -147,7 +154,7 @@ async def test_get_file_limits_by_default(client: Client[Any]) -> None:
 async def test_get_file_rejects_a_limit_below_one(client: Client[Any]) -> None:
     async with client:
         with pytest.raises(ToolError, match="content_limit"):
-            await client.call_tool("get_file", {"version_id": "a-version", "path": "Dockstore.cwl", "content_limit": 0})
+            await client.call_tool("get_file", {"version_id": VERSION_ID, "path": "Dockstore.cwl", "content_limit": 0})
 
 
 async def test_get_entry_limits_by_default(client: Client[Any]) -> None:
@@ -161,7 +168,7 @@ async def test_get_entry_limits_by_default(client: Client[Any]) -> None:
 async def test_get_entry_rejects_a_limit_below_one(client: Client[Any], parameter: str) -> None:
     async with client:
         with pytest.raises(ToolError):
-            await client.call_tool("get_entry", {"entry_id": "16247", parameter: 0})
+            await client.call_tool("get_entry", {"entry_id": WORKFLOW_ID, parameter: 0})
 
 
 async def _get_entry(client: Client[Any], **arguments: Any) -> Any:
@@ -172,15 +179,15 @@ async def _get_entry(client: Client[Any], **arguments: Any) -> Any:
 
 
 async def test_get_entry_summarizes_a_workflow(client: Client[Any]) -> None:
-    entry = await _get_entry(client, entry_id="16247")
-    assert entry.id == "16247"
+    entry = await _get_entry(client, entry_id=WORKFLOW_ID)
+    assert entry.id == WORKFLOW_ID
     assert entry.type == EntryType.WORKFLOW
     assert entry.language == DescriptorLanguage.GALAXY
     assert entry.name == "COVID-19-ARTIC-ILLUMINA"
     assert entry.organization == "iwc-workflows"
     assert entry.authors == ["IWC"]  # The author with no name is dropped.
     assert entry.default_version is not None
-    assert (entry.default_version.id, entry.default_version.name) == ("117123", "v0.5.2")
+    assert (entry.default_version.id, entry.default_version.name) == (VERSION_ID, "v0.5.2")
     assert entry.updated_at == datetime(2026, 5, 13, 15, 33, 42, tzinfo=UTC)
     assert entry.url == (
         "https://staging.dockstore.org/workflows/"
@@ -190,7 +197,7 @@ async def test_get_entry_summarizes_a_workflow(client: Client[Any]) -> None:
 
 async def test_get_entry_returns_every_field(client: Client[Any], dockstore: FakeDockstore) -> None:
     async with client:
-        result = await client.call_tool("get_entry", {"entry_id": "16247"})
+        result = await client.call_tool("get_entry", {"entry_id": WORKFLOW_ID})
     assert result.structured_content is not None
     assert set(result.structured_content) == set(Entry.model_fields)
     entry = result.data
@@ -199,16 +206,17 @@ async def test_get_entry_returns_every_field(client: Client[Any], dockstore: Fak
     assert entry.doi == "10.5281/zenodo.15685746"
     assert entry.star_count == 2
     assert [(v.id, v.name, v.reference_type) for v in entry.versions] == [
-        ("117122", "v0.5.1", ReferenceType.TAG),
-        ("117123", "v0.5.2", ReferenceType.TAG),
+        (f"{WORKFLOW_ID}:v0.5.1", "v0.5.1", ReferenceType.TAG),
+        (VERSION_ID, "v0.5.2", ReferenceType.TAG),
     ]
     assert entry.operations == ["Variant calling"]
     assert dockstore.paths() == [
-        "/api/workflows/published/16247",
+        "/api/workflows/path/workflow/"
+        "github.com%2Fiwc-workflows%2Fsars-cov-2-variant-calling%2FCOVID-19-ARTIC-ILLUMINA/published",
         "/api/workflows/published/16247/workflowVersions",
         "/api/entries/16247/categories",
     ]
-    assert "include" not in dockstore.requests[0].url.params
+    assert dict(dockstore.requests[0].url.params) == {"subclass": "BIOWORKFLOW"}
     assert dict(dockstore.requests[1].url.params) == {"limit": "20"}
 
 
@@ -229,13 +237,13 @@ async def test_get_entry_limits_to_the_first_versions_in_dockstores_order(
     client: Client[Any], dockstore: FakeDockstore
 ) -> None:
     dockstore.workflow_versions = _many_versions(25)
-    entry = await _get_entry(client, entry_id="16247")
+    entry = await _get_entry(client, entry_id=WORKFLOW_ID)
     assert [version.name for version in entry.versions] == [f"v{number}" for number in range(20)]
 
 
 async def test_get_entry_takes_a_smaller_version_limit(client: Client[Any], dockstore: FakeDockstore) -> None:
     dockstore.workflow_versions = _many_versions(15)
-    entry = await _get_entry(client, entry_id="16247", version_limit=3)
+    entry = await _get_entry(client, entry_id=WORKFLOW_ID, version_limit=3)
     assert [version.name for version in entry.versions] == ["v0", "v1", "v2"]
     pages = [dict(r.url.params) for r in dockstore.requests if r.url.path.endswith("/workflowVersions")]
     assert pages == [{"limit": "3"}]
@@ -245,7 +253,7 @@ async def test_get_entry_pages_up_to_a_version_limit_beyond_one_page(
     client: Client[Any], dockstore: FakeDockstore
 ) -> None:
     dockstore.workflow_versions = _many_versions(250)
-    entry = await _get_entry(client, entry_id="16247", version_limit=150)
+    entry = await _get_entry(client, entry_id=WORKFLOW_ID, version_limit=150)
     assert [version.name for version in entry.versions] == [f"v{number}" for number in range(150)]
     pages = [dict(r.url.params) for r in dockstore.requests if r.url.path.endswith("/workflowVersions")]
     assert pages == [{"limit": "100", "offset": "0"}, {"limit": "50", "offset": "100"}]
@@ -255,7 +263,7 @@ async def test_get_entry_pages_through_every_version_without_a_limit(
     client: Client[Any], dockstore: FakeDockstore
 ) -> None:
     dockstore.workflow_versions = _many_versions(250)
-    entry = await _get_entry(client, entry_id="16247", version_limit=None)
+    entry = await _get_entry(client, entry_id=WORKFLOW_ID, version_limit=None)
     assert [version.name for version in entry.versions] == [f"v{number}" for number in range(250)]
     pages = [dict(r.url.params) for r in dockstore.requests if r.url.path.endswith("/workflowVersions")]
     assert pages == [{"limit": "100", "offset": str(offset)} for offset in (0, 100, 200)]
@@ -263,35 +271,35 @@ async def test_get_entry_pages_through_every_version_without_a_limit(
 
 async def test_get_entry_stops_paging_at_an_empty_page(client: Client[Any], dockstore: FakeDockstore) -> None:
     dockstore.workflow_versions = _many_versions(200)
-    entry = await _get_entry(client, entry_id="16247", version_limit=None)
+    entry = await _get_entry(client, entry_id=WORKFLOW_ID, version_limit=None)
     assert len(entry.versions) == 200
     assert dockstore.paths().count("/api/workflows/published/16247/workflowVersions") == 3
 
 
 async def test_get_entry_fetches_a_tools_versions_with_the_tool(client: Client[Any], dockstore: FakeDockstore) -> None:
     """Tools have no paged endpoint for their versions, so they come with the tool."""
-    entry = await _get_entry(client, entry_id="188")
+    entry = await _get_entry(client, entry_id=TOOL_ID)
     assert [version.name for version in entry.versions] == ["2.2.0"]
-    assert dockstore.paths()[1] == "/api/containers/published/188"
-    assert dockstore.requests[1].url.params["include"] == "versions"
+    assert dockstore.paths()[0] == "/api/containers/path/tool/quay.io%2Fpancancer%2Fpcawg-dkfz-workflow/published"
+    assert dockstore.requests[0].url.params["include"] == "versions"
 
 
 async def test_get_entry_limits_a_long_description(client: Client[Any], dockstore: FakeDockstore) -> None:
     dockstore.workflow = WORKFLOW | {"description": "x" * 6000}
-    entry = await _get_entry(client, entry_id="16247")
+    entry = await _get_entry(client, entry_id=WORKFLOW_ID)
     assert len(entry.description) == 5000
     assert entry.description == "x" * 4999 + "…"
 
 
 async def test_get_entry_leaves_a_short_description_alone(client: Client[Any], dockstore: FakeDockstore) -> None:
     dockstore.workflow = WORKFLOW | {"description": "x" * 5000}
-    entry = await _get_entry(client, entry_id="16247")
+    entry = await _get_entry(client, entry_id=WORKFLOW_ID)
     assert entry.description == "x" * 5000
 
 
 async def test_get_entry_takes_a_smaller_description_limit(client: Client[Any], dockstore: FakeDockstore) -> None:
     dockstore.workflow = WORKFLOW | {"description": "x" * 6000}
-    entry = await _get_entry(client, entry_id="16247", description_limit=100)
+    entry = await _get_entry(client, entry_id=WORKFLOW_ID, description_limit=100)
     assert entry.description == "x" * 99 + "…"
 
 
@@ -299,13 +307,14 @@ async def test_get_entry_returns_the_whole_description_without_a_limit(
     client: Client[Any], dockstore: FakeDockstore
 ) -> None:
     dockstore.workflow = WORKFLOW | {"description": "x" * 6000}
-    entry = await _get_entry(client, entry_id="16247", description_limit=None)
+    entry = await _get_entry(client, entry_id=WORKFLOW_ID, description_limit=None)
     assert entry.description == "x" * 6000
 
 
 async def test_get_entry_finds_a_tool_too(client: Client[Any]) -> None:
     """Tools are not served by the endpoint that answers for everything else."""
-    entry = await _get_entry(client, entry_id="188")
+    entry = await _get_entry(client, entry_id=TOOL_ID)
+    assert entry.id == TOOL_ID
     assert entry.type == EntryType.TOOL
     assert entry.name == "pcawg-dkfz-workflow"
     assert entry.registry == "quay.io"
@@ -313,7 +322,7 @@ async def test_get_entry_finds_a_tool_too(client: Client[Any]) -> None:
 
 
 async def test_get_entry_reads_a_tools_differently_spelled_fields(client: Client[Any]) -> None:
-    entry = await _get_entry(client, entry_id="188")
+    entry = await _get_entry(client, entry_id=TOOL_ID)
     assert entry.organization == "pancancer"  # A tool calls this its namespace.
     assert entry.language == DescriptorLanguage.CWL  # A tool can have several.
     assert entry.source_control == "github.com"  # Only a workflow states this outright.
@@ -322,11 +331,11 @@ async def test_get_entry_reads_a_tools_differently_spelled_fields(client: Client
 
 async def test_get_entry_summarizes_each_version(client: Client[Any]) -> None:
     async with client:
-        result = await client.call_tool("get_entry", {"entry_id": "188"})
+        result = await client.call_tool("get_entry", {"entry_id": TOOL_ID})
     assert result.structured_content is not None
     assert result.structured_content["versions"] == [
         {
-            "id": "5011",
+            "id": f"{TOOL_ID}:2.2.0",
             "name": "2.2.0",
             "reference_type": "branch",
             "updated_at": "2022-03-31T21:37:31Z",
@@ -335,17 +344,17 @@ async def test_get_entry_summarizes_each_version(client: Client[Any]) -> None:
 
 
 async def test_get_entry_prefers_a_versions_last_modified_date(client: Client[Any]) -> None:
-    entry = await _get_entry(client, entry_id="16247")
+    entry = await _get_entry(client, entry_id=WORKFLOW_ID)
     assert entry.versions is not None
     assert entry.versions[1].updated_at == datetime(2026, 5, 13, 15, 33, 42, tzinfo=UTC)
 
 
 async def test_get_entry_finds_the_default_version_among_the_versions(client: Client[Any]) -> None:
     async with client:
-        result = await client.call_tool("get_entry", {"entry_id": "188"})
+        result = await client.call_tool("get_entry", {"entry_id": TOOL_ID})
     assert result.structured_content is not None
     assert result.structured_content["default_version"] == {
-        "id": "5011",
+        "id": f"{TOOL_ID}:2.2.0",
         "name": "2.2.0",
         "reference_type": "branch",
         "updated_at": "2022-03-31T21:37:31Z",
@@ -353,7 +362,7 @@ async def test_get_entry_finds_the_default_version_among_the_versions(client: Cl
 
 
 async def test_get_entry_sorts_categories_into_their_fields(client: Client[Any]) -> None:
-    entry = await _get_entry(client, entry_id="16247")
+    entry = await _get_entry(client, entry_id=WORKFLOW_ID)
     assert entry.categories == ["COVID-19"]
     assert entry.subject_areas == ["Virology"]
     assert entry.operations == ["Variant calling"]
@@ -367,18 +376,54 @@ async def test_get_entry_sorts_categories_into_their_fields(client: Client[Any])
     assert len(sorted_labels) == len(CATEGORIES)
 
 
-async def test_get_entry_rejects_something_that_is_not_an_identifier(client: Client[Any]) -> None:
+@pytest.mark.parametrize(
+    "entry_id", ["16247", "COVID-19-ARTIC-ILLUMINA", "#workflow/", "#gadget/github.com/org/repo", "quay.io/org repo"]
+)
+async def test_get_entry_rejects_something_that_is_not_an_identifier(
+    client: Client[Any], dockstore: FakeDockstore, entry_id: str
+) -> None:
     async with client:
-        with pytest.raises(ToolError, match="not a Dockstore entry identifier"):
-            await client.call_tool("get_entry", {"entry_id": "github.com/iwc-workflows/sars-cov-2"})
+        with pytest.raises(ToolError, match="not the TRS identifier of a Dockstore entry"):
+            await client.call_tool("get_entry", {"entry_id": entry_id})
+    assert dockstore.requests == []
+
+
+async def test_get_entry_ignores_surrounding_whitespace(client: Client[Any]) -> None:
+    entry = await _get_entry(client, entry_id=f"  {WORKFLOW_ID} ")
+    assert entry.id == WORKFLOW_ID
+
+
+@pytest.mark.parametrize(("prefix", "subclass"), [("#notebook/", "NOTEBOOK"), ("#service/", "SERVICE")])
+async def test_get_entry_asks_for_the_kind_of_entry_its_prefix_names(
+    client: Client[Any], dockstore: FakeDockstore, prefix: str, subclass: str
+) -> None:
+    async with client:
+        with pytest.raises(ToolError, match="no published entry"):
+            await client.call_tool("get_entry", {"entry_id": f"{prefix}github.com/org/repo"})
+    assert dockstore.paths() == ["/api/workflows/path/workflow/github.com%2Forg%2Frepo/published"]
+    assert dict(dockstore.requests[0].url.params) == {"subclass": subclass}
 
 
 async def test_get_entry_reports_an_entry_that_is_not_there(client: Client[Any], dockstore: FakeDockstore) -> None:
     async with client:
-        with pytest.raises(ToolError, match="no published entry with identifier '404'"):
-            await client.call_tool("get_entry", {"entry_id": "404"})
-    # Both endpoints were tried before giving up.
-    assert dockstore.paths() == ["/api/workflows/published/404", "/api/containers/published/404"]
+        with pytest.raises(ToolError, match=r"no published entry with TRS identifier 'github\.com/org/repo'"):
+            await client.call_tool("get_entry", {"entry_id": "github.com/org/repo"})
+    # With no prefix, it could have been a tool or an apptool, so both were looked for.
+    assert dockstore.paths() == [
+        "/api/containers/path/tool/github.com%2Forg%2Frepo/published",
+        "/api/workflows/path/workflow/github.com%2Forg%2Frepo/published",
+    ]
+    assert dict(dockstore.requests[1].url.params) == {"subclass": "APPTOOL"}
+
+
+@pytest.mark.parametrize(("name", "arguments"), [("get_version", {}), ("get_file", {"path": "Dockstore.cwl"})])
+@pytest.mark.parametrize("version_id", [WORKFLOW_ID, f"{WORKFLOW_ID}:", ":v0.5.2", "16247:v0.5.2"])
+async def test_version_lookups_reject_something_that_is_not_a_version_identifier(
+    client: Client[Any], name: str, arguments: dict[str, Any], version_id: str
+) -> None:
+    async with client:
+        with pytest.raises(ToolError, match="not the TRS identifier"):
+            await client.call_tool(name, {"version_id": version_id, **arguments})
 
 
 async def _search(client: Client[Any], dockstore: FakeDockstore, **arguments: Any) -> tuple[Any, dict[str, Any]]:
@@ -404,11 +449,10 @@ async def test_search_summarizes_each_hit(client: Client[Any], dockstore: FakeDo
     assert results["returned_count"] == 2
     workflow, tool = results["entries"]
     assert workflow == {
-        "id": "16247",
+        "id": "#workflow/github.com/iwc-workflows/sars-cov-2-variant-calling/COVID-19-ARTIC-ILLUMINA",
         "type": "workflow",
         "language": "galaxy",
         "name": "COVID-19-ARTIC-ILLUMINA",
-        "trs_id": "#workflow/github.com/iwc-workflows/sars-cov-2-variant-calling/COVID-19-ARTIC-ILLUMINA",
         "topic": "Variant calling from SARS-CoV-2 paired-end Illumina ARTIC data.",
         "categories": ["COVID-19"],
         "subject_areas": ["Virology"],
@@ -420,8 +464,9 @@ async def test_search_summarizes_each_hit(client: Client[Any], dockstore: FakeDo
         "output_data": ["Variant call data"],
         "updated_at": "2026-05-13T15:33:42Z",
     }
-    assert (tool["id"], tool["type"], tool["language"]) == ("188", "tool", "CWL")
-    assert (tool["name"], tool["trs_id"]) == ("pcawg-dkfz-workflow", "quay.io/pancancer/pcawg-dkfz-workflow")
+    # The tool was indexed without its TRS identifier, so it has one made from its path.
+    assert (tool["id"], tool["type"], tool["language"]) == ("quay.io/pancancer/pcawg-dkfz-workflow", "tool", "CWL")
+    assert tool["name"] == "pcawg-dkfz-workflow"
     assert tool["updated_at"] == "2022-03-31T21:37:31.404000Z"
     # An entry filed under no categories has an empty list for each facet.
     assert tool["categories"] == tool["operations"] == tool["output_data"] == []

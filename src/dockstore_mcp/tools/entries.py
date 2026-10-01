@@ -19,6 +19,11 @@ its README it returns, so that a caller does not pull down more than it needs to
 decide what to read next; ``get_version`` does the same for its file paths, and
 ``get_file`` for its content.
 
+Entries and versions are identified as GA4GH TRS identifies them: an entry by its
+TRS identifier ('#workflow/github.com/org/repo/name' or, for a tool,
+'quay.io/org/repo'), and a version by its entry's TRS identifier and its name,
+joined by a colon ('#workflow/github.com/org/repo/name:v1.0').
+
 TODO: ``get_version`` and ``get_file`` are still scaffolding and raise
 ``NotImplementedError`` until they are wired up to the Dockstore API.
 """
@@ -27,12 +32,13 @@ import logging
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from dockstore_mcp.api import DockstoreApi, NotFoundError
+from dockstore_mcp.api import DockstoreApi, DockstoreError, NotFoundError
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import (
     DescriptorLanguage,
@@ -71,6 +77,11 @@ DEFAULT_FILE_LIMIT = 100
 #: How many characters of a file's content get_file returns by default.
 DEFAULT_CONTENT_LIMIT = 50_000
 
+#: The TRS prefix of each kind of entry the workflows endpoint serves, with the
+#: subclass that endpoint files that kind under.  An identifier with no prefix is
+#: a tool's or an apptool's.
+_WORKFLOW_SUBCLASSES = {"#workflow/": "BIOWORKFLOW", "#notebook/": "NOTEBOOK", "#service/": "SERVICE"}
+
 #: Dockstore files an entry under automatic categories whose names say which
 #: facet they belong to, so one request for categories answers six of the
 #: fields above; anything else is a category a person curated.
@@ -95,12 +106,14 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
     ) -> Entry:
         """Retrieve information about one Dockstore entry.
 
-        Use this once you have an entry's identifier, which ``search_entries`` returns.
-        To read a particular version of the entry, take the id of one of the returned
-        ``versions`` and pass it to ``get_version``.
+        Use this once you have an entry's TRS identifier, which ``search_entries``
+        returns. To read a particular version of the entry, take the id of one of the
+        returned ``versions`` and pass it to ``get_version``.
 
         Args:
-            entry_id: Dockstore identifier of the entry, as returned by ``search_entries``.
+            entry_id: TRS identifier of the entry, as returned by ``search_entries``,
+                such as '#workflow/github.com/org/repo/name' or, for a tool,
+                'quay.io/org/repo'.
             description_limit: The most characters of the ``description``, which is
                 often a whole README, to return. Pass null to get the full description.
             version_limit: The most ``versions`` to return, taken from the start of
@@ -110,9 +123,9 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         Returns:
             The entry.
         """
-        identifier = _identifier(entry_id)
-        payload = await _fetch_entry(api, identifier, version_limit=version_limit)
-        categories = await _fetch_categories(api, identifier)
+        trs_id = _identifier(entry_id)
+        payload = await _fetch_entry(api, trs_id, version_limit=version_limit)
+        categories = await _fetch_categories(api, _dockstore_id(payload))
         return _to_entry(
             payload,
             categories,
@@ -134,13 +147,16 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         ``file_paths`` and pass it to ``get_file``.
 
         Args:
-            version_id: Dockstore identifier of the version, as returned by ``get_entry``.
+            version_id: TRS identifier of the version, as returned by ``get_entry``: the
+                entry's TRS identifier and the version name joined by a colon, such as
+                '#workflow/github.com/org/repo/name:v1.0'.
             file_limit: The most ``file_paths`` to return, starting with the
                 ``descriptor_path``, which is never cut. Pass null to get every path.
 
         Returns:
             The version.
         """
+        _version_identifier(version_id)
         # TODO: fetch the version from the Dockstore API, putting the primary
         # descriptor first in file_paths and cutting them short at file_limit.
         raise NotImplementedError("get_version is not implemented yet")
@@ -158,7 +174,8 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         the primary descriptor is at its ``descriptor_path``.
 
         Args:
-            version_id: Dockstore identifier of the version the file belongs to.
+            version_id: TRS identifier of the version the file belongs to, as returned
+                by ``get_entry``.
             path: Path of the file within the version, as returned by ``get_version``.
             content_limit: The most characters of the ``content`` to return. Pass
                 null to get the whole file.
@@ -166,41 +183,82 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         Returns:
             The file.
         """
+        _version_identifier(version_id)
         # TODO: fetch the file from the Dockstore API, cutting its content short
         # at content_limit with _truncate.
         raise NotImplementedError("get_file is not implemented yet")
 
 
 def _identifier(entry_id: str) -> str:
-    """Check that ``entry_id`` looks like a Dockstore identifier, and normalize it."""
-    identifier = entry_id.strip()
-    if not identifier.isdecimal():
+    """Check that ``entry_id`` looks like a TRS identifier, and normalize it."""
+    trs_id = entry_id.strip()
+    prefix, path = _split_trs_id(trs_id)
+    if (
+        "/" not in path
+        or any(character.isspace() for character in trs_id)
+        or (prefix and prefix not in _WORKFLOW_SUBCLASSES)
+    ):
         raise ToolError(
-            f"'{entry_id}' is not a Dockstore entry identifier. Identifiers are numbers; "
+            f"'{entry_id}' is not the TRS identifier of a Dockstore entry. Identifiers look like "
+            "'#workflow/github.com/org/repo/name' or, for a tool, 'quay.io/org/repo'; "
             "search_entries returns them, as does the id field of an entry."
         )
-    return identifier
+    return trs_id
 
 
-async def _fetch_entry(api: DockstoreApi, identifier: str, *, version_limit: int | None) -> dict[str, Any]:
+def _version_identifier(version_id: str) -> tuple[str, str]:
+    """Split a TRS version identifier into its entry's TRS identifier and the version name."""
+    # An entry's path has no colon in it, but a version name can have a slash.
+    trs_id, _, name = version_id.strip().rpartition(":")
+    if not trs_id or not name:
+        raise ToolError(
+            f"'{version_id}' is not the TRS identifier of a version. A version is identified by "
+            "its entry's TRS identifier and its name, joined by a colon, such as "
+            "'#workflow/github.com/org/repo/name:v1.0'; get_entry returns them as the id of each version."
+        )
+    return _identifier(trs_id), name
+
+
+def _split_trs_id(trs_id: str) -> tuple[str, str]:
+    """Split a TRS identifier into its prefix, if it has one, and the entry's path."""
+    if not trs_id.startswith("#"):
+        return "", trs_id
+    prefix, _, path = trs_id.partition("/")
+    return f"{prefix}/", path
+
+
+async def _fetch_entry(api: DockstoreApi, trs_id: str, *, version_limit: int | None) -> dict[str, Any]:
     """Fetch a published entry and its versions, whichever kind of entry it turns out to be."""
-    # Workflows, notebooks, services, and apptools are all served by the workflows
-    # endpoint; only tools live elsewhere, so that endpoint is the one to try second.
-    try:
-        workflow = await api.get_object(f"/workflows/published/{identifier}")
-    except NotFoundError:
-        pass
+    prefix, path = _split_trs_id(trs_id)
+    # The path goes in the request as a single segment, slashes and all.
+    encoded = quote(path, safe="")
+    if prefix:
+        subclass = _WORKFLOW_SUBCLASSES[prefix]
     else:
-        versions = await _fetch_workflow_versions(api, identifier, limit=version_limit)
-        return workflow | {"workflowVersions": versions}
+        # Tools and apptools share identifiers with no prefix, but only tools live
+        # outside the workflows endpoint.
+        try:
+            # Tools have no paged endpoint for their versions, so they come with the tool.
+            return await api.get_object(f"/containers/path/tool/{encoded}/published", {"include": "versions"})
+        except NotFoundError:
+            subclass = "APPTOOL"
     try:
-        # Tools have no paged endpoint for their versions, so they come with the tool.
-        return await api.get_object(f"/containers/published/{identifier}", {"include": "versions"})
+        workflow = await api.get_object(f"/workflows/path/workflow/{encoded}/published", {"subclass": subclass})
     except NotFoundError:
         raise NotFoundError(
-            f"Dockstore has no published entry with identifier '{identifier}'. "
+            f"Dockstore has no published entry with TRS identifier '{trs_id}'. "
             "Use search_entries to find an entry and its identifier."
         ) from None
+    versions = await _fetch_workflow_versions(api, _dockstore_id(workflow), limit=version_limit)
+    return workflow | {"workflowVersions": versions}
+
+
+def _dockstore_id(payload: dict[str, Any]) -> str:
+    """Return the number Dockstore files an entry under, which its other endpoints are addressed by."""
+    identifier = payload.get("id")
+    if identifier is None:
+        raise DockstoreError("Dockstore answered with an entry that has no identifier.")
+    return str(identifier)
 
 
 async def _fetch_workflow_versions(api: DockstoreApi, identifier: str, *, limit: int | None) -> list[Any]:
@@ -237,17 +295,16 @@ def _to_entry(
 ) -> Entry:
     """Map a Dockstore entry payload onto an :class:`Entry`, trimmed to the limits given."""
     facets = _facets(categories)
-    versions = payload.get("workflowVersions")
-    summaries = _versions(versions)
+    trs_id = _trs_id(payload)
+    summaries = _versions(payload.get("workflowVersions"), trs_id)
     description = payload.get("description")
     starred = payload.get("starredUsers")
     values: dict[str, Any] = {
-        "id": _text(payload.get("id")),
+        "id": trs_id,
         "type": _entry_type(payload.get("entryType")),
         "language": _language(payload.get("descriptorType")),
         "name": _first_of(payload, "workflowName", "toolname", "repository", "name"),
         "organization": _first_of(payload, "organization", "namespace"),
-        "trs_id": payload.get("trsId"),
         "topic": payload.get("topic"),
         "description": _truncate(description, description_limit),
         "authors": _values_of(payload.get("authors"), "name"),
@@ -304,19 +361,19 @@ def _facets(categories: Iterable[Any]) -> dict[str, list[str]]:
     return {field: list(dict.fromkeys(labels)) for field, labels in facets.items()}
 
 
-def _versions(versions: Any) -> list[VersionSummary] | None:
-    """Summarize each of an entry's versions, skipping any without an identifier."""
-    if not isinstance(versions, list):
+def _versions(versions: Any, trs_id: str | None) -> list[VersionSummary] | None:
+    """Summarize each of an entry's versions, skipping any without a name to identify it by."""
+    if not isinstance(versions, list) or trs_id is None:
         return None
     return [
         VersionSummary(
-            id=str(version["id"]),
+            id=f"{trs_id}:{version['name']}",
             name=version.get("name"),
             reference_type=_reference_type(version.get("referenceType")),
             updated_at=_timestamp(version.get("last_modified") or version.get("dbUpdateDate")),
         )
         for version in versions
-        if isinstance(version, dict) and version.get("id") is not None
+        if isinstance(version, dict) and isinstance(version.get("name"), str) and version["name"]
     ]
 
 
@@ -358,9 +415,17 @@ def _values_of(items: Any, key: str) -> list[str]:
     return [item[key] for item in items if isinstance(item, dict) and item.get(key)]
 
 
-def _text(value: Any) -> str | None:
-    """Render an identifier as a string, since Dockstore numbers its entries."""
-    return None if value is None else str(value)
+def _trs_id(payload: dict[str, Any]) -> str | None:
+    """Return an entry's TRS identifier, or make one from its path behind its type's prefix."""
+    trs_id = payload.get("trsId")
+    if isinstance(trs_id, str) and trs_id:
+        return trs_id
+    path = _first_of(payload, "full_workflow_path", "tool_path")
+    if not path:
+        return None
+    metadata = payload.get("entryTypeMetadata")
+    prefix = metadata.get("trsPrefix") if isinstance(metadata, dict) else None
+    return f"{prefix or ''}{path}"
 
 
 def _entry_type(value: Any) -> EntryType | None:

@@ -29,7 +29,7 @@ __all__ = ["CATEGORIES", "SEARCH_HITS", "TOOL", "TOOL_VERSIONS", "WORKFLOW", "WO
 
 EDAM = "http://edamontology.org"
 
-#: A published workflow, as ``/workflows/published/{id}`` returns it.
+#: A published workflow, as ``/workflows/path/workflow/{path}/published`` returns it.
 WORKFLOW: dict[str, Any] = {
     "id": 16247,
     "type": "BioWorkflow",
@@ -82,7 +82,7 @@ WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     },
 ]
 
-#: A published tool, as ``/containers/published/{id}`` returns it.  A tool has
+#: A published tool, as ``/containers/path/tool/{path}/published`` returns it.  A tool has
 #: no ``sourceControl``, no ``organization``, and a list of descriptor types.
 TOOL: dict[str, Any] = {
     "id": 188,
@@ -172,8 +172,8 @@ _INDEXED_CATEGORIES: dict[str, Any] = {
 }
 
 #: What the search endpoint answers with: the workflow and tool above as the
-#: index holds them, plus a hit with no path, which cannot be summarized.  Each
-#: document's own id is 0; the entry's identifier is the document's ``_id``.
+#: index holds them, plus a hit with no path, which cannot be summarized.  The
+#: tool was indexed without its TRS identifier.
 SEARCH_HITS: dict[str, Any] = {
     "took": 3,
     "timed_out": False,
@@ -246,20 +246,22 @@ class FakeDockstore:
         return [json.loads(request.content) for request in self.requests if request.method == "POST"]
 
     def paths(self) -> list[str]:
-        """The path of every request made so far."""
-        return [request.url.path for request in self.requests]
+        """The path of every request made so far, still percent-encoded."""
+        return [_raw_path(request) for request in self.requests]
 
     def _handle(self, request: httpx2.Request) -> httpx2.Response:
         self.requests.append(request)
         wants_versions = request.url.params.get("include") == "versions"
-        match request.url.path:
-            case "/api/workflows/published/16247":
+        # The workflows endpoint looks only among bioworkflows unless told otherwise.
+        subclass = request.url.params.get("subclass", "BIOWORKFLOW")
+        match _raw_path(request):
+            case path if path == _path_endpoint("workflows/path/workflow", WORKFLOW) and subclass == "BIOWORKFLOW":
                 return self._entry(self.workflow, self.workflow_versions, wants_versions)
             case "/api/workflows/published/16247/workflowVersions":
                 offset = int(request.url.params.get("offset", 0))
                 limit = int(request.url.params.get("limit", 100))
                 return httpx2.Response(200, json=self.workflow_versions[offset : offset + limit])
-            case "/api/containers/published/188":
+            case path if path == _path_endpoint("containers/path/tool", TOOL):
                 return self._entry(TOOL, TOOL_VERSIONS, wants_versions)
             case "/api/entries/16247/categories":
                 return httpx2.Response(200, json=CATEGORIES)
@@ -273,3 +275,13 @@ class FakeDockstore:
     @staticmethod
     def _entry(payload: dict[str, Any], versions: list[dict[str, Any]], wants_versions: bool) -> httpx2.Response:
         return httpx2.Response(200, json=payload | {"workflowVersions": versions if wants_versions else None})
+
+
+def _raw_path(request: httpx2.Request) -> str:
+    return request.url.raw_path.decode().partition("?")[0]
+
+
+def _path_endpoint(endpoint: str, payload: dict[str, Any]) -> str:
+    """Where Dockstore serves ``payload`` by its path, which goes in the request as one segment."""
+    path = payload.get("full_workflow_path") or payload["tool_path"]
+    return f"/api/{endpoint}/{path.replace('/', '%2F')}/published"
