@@ -56,7 +56,7 @@ Over HTTP it serves two paths:
 
 | Path      | Purpose                                             |
 | --------- | --------------------------------------------------- |
-| `/mcp`    | The MCP endpoint (streamable HTTP)                  |
+| `/mcp`    | The MCP endpoint (stateless streamable HTTP)        |
 | `/health` | Liveness probe, returns `{"status": "ok", ...}`     |
 
 ### With a container

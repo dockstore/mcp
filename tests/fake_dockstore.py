@@ -367,10 +367,13 @@ class FakeDockstore:
         if not rest:
             return httpx2.Response(200, json={"name": endpoint.rpartition("/")[2], "descriptor_type": list(files)})
         type_, _, files_path = rest.removeprefix("/").partition("/")
+        if files_path == "files":
+            # Under a type the version has no descriptor in, TRS still lists the files every type shares.
+            listing = next(iter(files.values()), [])
+            shared = [file for file in listing if file["file_type"] in ("OTHER", "CONTAINERFILE")]
+            return httpx2.Response(200, json=files.get(type_, shared))
         if type_ not in files:
             return httpx2.Response(404, json={"code": 404, "message": "Not found."})
-        if files_path == "files":
-            return httpx2.Response(200, json=files[type_])
         if files_path.startswith("descriptor/"):
             return self._trs_file(unquote(files_path.removeprefix("descriptor/")), files)
         return httpx2.Response(404, json={"code": 404, "message": "Not found."})

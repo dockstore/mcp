@@ -96,6 +96,20 @@ _TRS_DESCRIPTOR_TYPES = {
     "SERVICE": None,
 }
 
+#: The TRS descriptor types each kind of entry can have, by TRS prefix, in the
+#: order TRS reports them.  An identifier with no prefix is a tool's or an apptool's.
+_TRS_DESCRIPTOR_TYPES_BY_PREFIX = {
+    "#workflow/": ("CWL", "WDL", "NFL", "GALAXY", "SMK"),
+    "#notebook/": ("JUPYTER",),
+    "#service/": ("SERVICE",),
+    "": ("CWL", "WDL"),
+}
+
+#: The kinds of file TRS lists only under the descriptor type they belong to.
+#: Anything else, such as a Dockerfile or a .dockstore.yml, it lists under every
+#: type, even one the version has no descriptor in.
+_TRS_TYPED_FILE_TYPES = {"PRIMARY_DESCRIPTOR", "SECONDARY_DESCRIPTOR", "TEST_FILE"}
+
 #: Dockstore files an entry under automatic categories whose names say which
 #: facet they belong to, so one request for categories answers six of the
 #: fields above; anything else is a category a person curated.
@@ -303,15 +317,20 @@ async def _fetch_version_by_ids(api: DockstoreApi, trs_id: str, entry_id: Any, v
 async def _fetch_trs_files(api: DockstoreApi, trs_id: str, name: str) -> list[tuple[str, list[Any]]]:
     """Fetch the TRS listing of a version's files for each descriptor type it has, in TRS's order of types.
 
-    TRS lists a version's files one descriptor type at a time, and reports which
-    types a version has from the descriptors it actually holds.
+    TRS lists a version's files one descriptor type at a time.  Rather than ask its
+    version endpoint which types a version has, which is slow, this lists the files
+    under every type the entry's kind can have, and keeps the listings with a file
+    of their own type in them.
     """
     endpoint = _trs_version_endpoint(trs_id, name)
-    tool_version = await api.get_object(endpoint)
-    types = tool_version.get("descriptor_type")
-    types = [type_ for type_ in types if isinstance(type_, str)] if isinstance(types, list) else []
+    prefix, _ = _split_trs_id(trs_id)
+    types = _TRS_DESCRIPTOR_TYPES_BY_PREFIX[prefix]
     listings = await asyncio.gather(*(api.get_list(f"{endpoint}/{type_}/files") for type_ in types))
-    return list(zip(types, listings, strict=True))
+    return [
+        (type_, files)
+        for type_, files in zip(types, listings, strict=True)
+        if any(isinstance(file, dict) and file.get("file_type") in _TRS_TYPED_FILE_TYPES for file in files)
+    ]
 
 
 async def _fetch_file(api: DockstoreApi, trs_id: str, name: str, path: str) -> tuple[dict[str, Any], dict[str, Any]]:

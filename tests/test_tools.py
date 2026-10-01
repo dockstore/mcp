@@ -461,11 +461,13 @@ async def test_get_version_returns_every_field(client: Client[Any], dockstore: F
     )
     # The version and its files are fetched side by side once the version is found.
     assert dockstore.paths()[0] == "/api/entries/mapTrsVersionId"
-    assert sorted(dockstore.paths()[1:]) == [
-        TRS_VERSION_PATH,
-        f"{TRS_VERSION_PATH}/GALAXY/files",
-        "/api/workflows/published/16247/workflowVersions/117123",
-    ]
+    # TRS's slow version endpoint is skipped: the files are listed under every type a workflow can have.
+    assert sorted(dockstore.paths()[1:]) == sorted(
+        [
+            "/api/workflows/published/16247/workflowVersions/117123",
+            *(f"{TRS_VERSION_PATH}/{type_}/files" for type_ in ("CWL", "WDL", "NFL", "GALAXY", "SMK")),
+        ]
+    )
     assert dict(dockstore.requests[0].url.params) == {"trsVersionId": VERSION_ID}
 
 
@@ -502,7 +504,13 @@ async def test_get_version_lists_no_files_without_a_descriptor_type(
     dockstore.workflow_files = {}
     version = await _get_version(client, version_id=VERSION_ID)
     assert (version.descriptor_path, version.language, version.file_paths) == (None, None, [])
-    assert not any(path.endswith("/files") for path in dockstore.paths())
+
+
+async def test_get_version_skips_types_with_only_shared_files(client: Client[Any], dockstore: FakeDockstore) -> None:
+    """TRS lists a .dockstore.yml under every type, but that does not make the version a CWL one."""
+    version = await _get_version(client, version_id=VERSION_ID)
+    assert version.language == DescriptorLanguage.GALAXY
+    assert version.file_paths.count(".dockstore.yml") == 1
 
 
 async def test_get_version_finds_a_tools_version(client: Client[Any], dockstore: FakeDockstore) -> None:
@@ -523,7 +531,7 @@ async def test_get_version_merges_a_tools_files_across_languages(client: Client[
     assert version.language == DescriptorLanguage.CWL
     assert version.file_paths == ["Dockstore.cwl", "Dockerfile", "Dockstore.wdl"]
     files = sorted(path.rpartition("/versions/2.2.0")[2] for path in dockstore.paths() if "/trs/" in path)
-    assert files == ["", "/CWL/files", "/WDL/files"]
+    assert files == ["/CWL/files", "/WDL/files"]
 
 
 async def test_get_version_reports_a_version_that_is_not_there(client: Client[Any], dockstore: FakeDockstore) -> None:
@@ -558,11 +566,8 @@ async def test_get_file_returns_every_field(client: Client[Any], dockstore: Fake
     assert file.content == '{"a_galaxy_workflow": "true"}'
     assert file.checksums == {"sha-256": "ab12"}
     assert file.url == "https://raw.githubusercontent.com/example/repo/main/pe-artic-variation.ga"
-    assert dockstore.paths() == [
-        TRS_VERSION_PATH,
-        f"{TRS_VERSION_PATH}/GALAXY/files",
-        f"{TRS_VERSION_PATH}/GALAXY/descriptor/pe-artic-variation.ga",
-    ]
+    assert dockstore.paths()[-1] == f"{TRS_VERSION_PATH}/GALAXY/descriptor/pe-artic-variation.ga"
+    assert TRS_VERSION_PATH not in dockstore.paths()
 
 
 async def test_get_file_reads_a_file_that_is_not_a_descriptor(client: Client[Any]) -> None:
