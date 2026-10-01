@@ -24,8 +24,8 @@ TRS identifier ('#workflow/github.com/org/repo/name' or, for a tool,
 'quay.io/org/repo'), and a version by its entry's TRS identifier and its name,
 joined by a colon ('#workflow/github.com/org/repo/name:v1.0').
 
-TODO: ``get_version`` and ``get_file`` are still scaffolding and raise
-``NotImplementedError`` until they are wired up to the Dockstore API.
+TODO: ``get_file`` is still scaffolding and raises ``NotImplementedError`` until
+it is wired up to the Dockstore API.
 """
 
 import logging
@@ -82,6 +82,21 @@ DEFAULT_CONTENT_LIMIT = 50_000
 #: a tool's or an apptool's.
 _WORKFLOW_SUBCLASSES = {"#workflow/": "BIOWORKFLOW", "#notebook/": "NOTEBOOK", "#service/": "SERVICE"}
 
+#: The section of the site each kind of entry's pages live in, by TRS prefix.  Tools
+#: and apptools, which have no prefix, both live among the containers.
+_SITE_PATHS = {"#workflow/": "workflows", "#notebook/": "notebooks", "#service/": "services", "": "containers"}
+
+#: The language of each type of file Dockstore can hold as a descriptor.
+_DESCRIPTOR_FILE_TYPES = {
+    "DOCKSTORE_CWL": DescriptorLanguage.CWL,
+    "DOCKSTORE_WDL": DescriptorLanguage.WDL,
+    "NEXTFLOW_CONFIG": DescriptorLanguage.NEXTFLOW,
+    "NEXTFLOW": DescriptorLanguage.NEXTFLOW,
+    "DOCKSTORE_GXFORMAT2": DescriptorLanguage.GALAXY,
+    "DOCKSTORE_SMK": DescriptorLanguage.SNAKEMAKE,
+    "DOCKSTORE_JUPYTER": DescriptorLanguage.JUPYTER,
+}
+
 #: Dockstore files an entry under automatic categories whose names say which
 #: facet they belong to, so one request for categories answers six of the
 #: fields above; anything else is a category a person curated.
@@ -135,7 +150,7 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         )
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
-    def get_version(
+    async def get_version(
         version_id: str,
         file_limit: Annotated[int | None, Field(ge=1)] = DEFAULT_FILE_LIMIT,
     ) -> Version:
@@ -156,10 +171,9 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         Returns:
             The version.
         """
-        _version_identifier(version_id)
-        # TODO: fetch the version from the Dockstore API, putting the primary
-        # descriptor first in file_paths and cutting them short at file_limit.
-        raise NotImplementedError("get_version is not implemented yet")
+        trs_id, name = _version_identifier(version_id)
+        version, source_files = await _fetch_version(api, trs_id, name)
+        return _to_version(version, source_files, trs_id, settings, file_limit=file_limit)
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     def get_file(
@@ -253,6 +267,32 @@ async def _fetch_entry(api: DockstoreApi, trs_id: str, *, version_limit: int | N
     return workflow | {"workflowVersions": versions}
 
 
+async def _fetch_version(api: DockstoreApi, trs_id: str, name: str) -> tuple[dict[str, Any], list[Any]]:
+    """Fetch a published entry's visible version and its files, whichever kind of entry it belongs to."""
+    trs_version_id = f"{trs_id}:{name}"
+    try:
+        ids = await api.get_object("/entries/mapTrsVersionId", {"trsVersionId": trs_version_id})
+    except NotFoundError:
+        raise NotFoundError(
+            f"Dockstore has no published version with TRS identifier '{trs_version_id}'. "
+            "Use get_entry to list an entry's versions and their identifiers."
+        ) from None
+    entry_id, version_id = ids.get("entryId"), ids.get("versionId")
+    if entry_id is None or version_id is None:
+        raise DockstoreError("Dockstore answered with a version that has no identifier.")
+    prefix, _ = _split_trs_id(trs_id)
+    if not prefix:
+        # Tools and apptools share identifiers with no prefix, but only tools keep
+        # their versions outside the workflows endpoint.
+        try:
+            version = await api.get_object(f"/containers/published/{entry_id}/tags/{version_id}")
+            return version, await api.get_list(f"/containers/{entry_id}/tags/{version_id}/sourcefiles")
+        except NotFoundError:
+            pass
+    version = await api.get_object(f"/workflows/published/{entry_id}/workflowVersions/{version_id}")
+    return version, await api.get_list(f"/workflows/{entry_id}/workflowVersions/{version_id}/sourcefiles")
+
+
 def _dockstore_id(payload: dict[str, Any]) -> str:
     """Return the number Dockstore files an entry under, which its other endpoints are addressed by."""
     identifier = payload.get("id")
@@ -331,6 +371,80 @@ def _to_entry(
         "url": _url(payload, settings),
     }
     return Entry.model_validate(values)
+
+
+def _to_version(
+    payload: dict[str, Any],
+    source_files: list[Any],
+    trs_id: str,
+    settings: Settings,
+    *,
+    file_limit: int | None,
+) -> Version:
+    """Map a Dockstore version payload and its files onto a :class:`Version`, trimmed to the limit given."""
+    files = [file for file in source_files if isinstance(file, dict) and isinstance(file.get("path"), str)]
+    descriptor = _descriptor(payload, files)
+    paths = [file["path"] for file in files]
+    if descriptor is not None:
+        # The descriptor leads, so that no limit can cut it.
+        paths.remove(descriptor["path"])
+        paths.insert(0, descriptor["path"])
+    name = payload.get("name")
+    values: dict[str, Any] = {
+        "id": f"{trs_id}:{name}" if name else None,
+        "entry_id": trs_id,
+        "name": name,
+        "reference": payload.get("reference"),
+        "language": _DESCRIPTOR_FILE_TYPES[descriptor["type"]] if descriptor is not None else None,
+        "descriptor_path": descriptor["path"] if descriptor is not None else payload.get("workflow_path"),
+        "file_paths": paths if file_limit is None else paths[:file_limit],
+        "is_valid": payload.get("valid"),
+        "is_verified": payload.get("verified"),
+        "is_frozen": payload.get("frozen"),
+        "doi": _version_doi(payload),
+        "created_at": _timestamp(payload.get("dbCreateDate")),
+        "updated_at": _timestamp(payload.get("last_modified") or payload.get("dbUpdateDate")),
+        "url": _version_url(trs_id, name, settings),
+    }
+    return Version.model_validate(values)
+
+
+def _descriptor(payload: dict[str, Any], files: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Find the version's primary descriptor among its files.
+
+    A workflow names one descriptor path; a tool names one per language, with a
+    default for each whether or not the file exists, so its descriptor is the first
+    of them that Dockstore actually holds.
+    """
+    for key in ("workflow_path", "cwl_path", "wdl_path"):
+        path = payload.get(key)
+        if not isinstance(path, str) or not path:
+            continue
+        # Dockstore matches paths regardless of case and of a leading slash.
+        wanted = "/" + path.lstrip("/").lower()
+        match = next((file for file in files if "/" + file["path"].lstrip("/").lower() == wanted), None)
+        if match is not None and match.get("type") in _DESCRIPTOR_FILE_TYPES:
+            return match
+    return None
+
+
+def _version_doi(payload: dict[str, Any]) -> str | None:
+    """Return the version's DOI, preferring the one its owner minted, as Dockstore does."""
+    dois = payload.get("dois")
+    if isinstance(dois, dict):
+        for initiator in ("USER", "GITHUB", "DOCKSTORE"):
+            doi = dois.get(initiator)
+            if isinstance(doi, dict) and doi.get("name"):
+                return str(doi["name"])
+    return None
+
+
+def _version_url(trs_id: str, name: Any, settings: Settings) -> str | None:
+    """Build the address of the version's page, the entry's page with the version name behind a colon."""
+    prefix, path = _split_trs_id(trs_id)
+    if not name or prefix not in _SITE_PATHS:
+        return None
+    return f"{settings.dockstore_url}/{_SITE_PATHS[prefix]}/{path}:{name}"
 
 
 def _facets(categories: Iterable[Any]) -> dict[str, list[str]]:

@@ -17,7 +17,8 @@ The payloads below are trimmed copies of what dockstore.org answers with, kept
 down to the keys the tools read plus a few they should ignore.  They are the
 awkward cases on purpose: a workflow that spells things one way and a tool that
 spells the same things another, an author with no name, a tool with two
-descriptor languages, and a tool that only implies where its source lives.
+descriptor languages, a tool that only implies where its source lives, and a tool
+version whose CWL descriptor path names a file that is not there.
 """
 
 import json
@@ -25,7 +26,17 @@ from typing import Any
 
 import httpx2
 
-__all__ = ["CATEGORIES", "SEARCH_HITS", "TOOL", "TOOL_VERSIONS", "WORKFLOW", "WORKFLOW_VERSIONS", "FakeDockstore"]
+__all__ = [
+    "CATEGORIES",
+    "SEARCH_HITS",
+    "TOOL",
+    "TOOL_SOURCE_FILES",
+    "TOOL_VERSIONS",
+    "WORKFLOW",
+    "WORKFLOW_SOURCE_FILES",
+    "WORKFLOW_VERSIONS",
+    "FakeDockstore",
+]
 
 EDAM = "http://edamontology.org"
 
@@ -60,7 +71,8 @@ WORKFLOW: dict[str, Any] = {
     "workflowVersions": None,
 }
 
-#: The workflow's versions, as ``/workflows/published/{id}/workflowVersions`` pages them.
+#: The workflow's versions, as ``/workflows/published/{id}/workflowVersions`` pages them
+#: and ``/workflows/published/{id}/workflowVersions/{versionId}`` returns each one.
 WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     {
         "id": 117122,
@@ -77,9 +89,25 @@ WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "reference": "v0.5.2",
         "referenceType": "TAG",
         "verified": True,
+        "valid": True,
+        "frozen": True,
+        "hidden": False,
+        "workflow_path": "/pe-artic-variation.ga",
+        "dois": {
+            "DOCKSTORE": {"id": 5385, "name": "10.5281/zenodo.15685747", "type": "VERSION", "initiator": "DOCKSTORE"},
+            "USER": {"id": 5386, "name": "10.5281/zenodo.99999999", "type": "VERSION", "initiator": "USER"},
+        },
         "last_modified": 1778686422000,
         "dbUpdateDate": 1778686489697,
     },
+]
+
+#: The files of the workflow's default version, as ``/workflows/{id}/workflowVersions/{versionId}/sourcefiles``
+#: returns them: sorted by path, which puts the descriptor last.
+WORKFLOW_SOURCE_FILES: list[dict[str, Any]] = [
+    {"id": 1, "type": "DOCKSTORE_YML", "path": "/.dockstore.yml", "absolutePath": "/.dockstore.yml", "content": "x"},
+    {"id": 2, "type": "GXFORMAT2_TEST_FILE", "path": "/pe-artic-variation-tests.yml", "content": "x"},
+    {"id": 3, "type": "DOCKSTORE_GXFORMAT2", "path": "/pe-artic-variation.ga", "content": "x"},
 ]
 
 #: A published tool, as ``/containers/path/tool/{path}/published`` returns it.  A tool has
@@ -115,7 +143,8 @@ TOOL: dict[str, Any] = {
     "workflowVersions": None,
 }
 
-#: What ``include=versions`` adds to the tool above.
+#: What ``include=versions`` adds to the tool above, and what
+#: ``/containers/published/{id}/tags/{tagId}`` returns for each tag.
 TOOL_VERSIONS: list[dict[str, Any]] = [
     {
         "id": 5011,
@@ -123,9 +152,23 @@ TOOL_VERSIONS: list[dict[str, Any]] = [
         "reference": "2.2.0",
         "referenceType": "BRANCH",
         "verified": True,
+        "valid": True,
+        "frozen": False,
+        "hidden": False,
+        "cwl_path": "/Dockstore.cwl",
+        "wdl_path": "/Dockstore.wdl",
+        "dockerfile_path": "/Dockerfile",
+        "dois": {},
         "last_modified": None,
         "dbUpdateDate": 1648762651000,
     }
+]
+
+#: The files of the tool's tag, as ``/containers/{id}/tags/{tagId}/sourcefiles`` returns
+#: them.  There is no CWL descriptor, although the tag names a path for one.
+TOOL_SOURCE_FILES: list[dict[str, Any]] = [
+    {"id": 11, "type": "DOCKERFILE", "path": "/Dockerfile", "content": "FROM ubuntu"},
+    {"id": 12, "type": "DOCKSTORE_WDL", "path": "/Dockstore.wdl", "content": "workflow x {}"},
 ]
 
 #: The categories the workflow above has been filed under: one a person
@@ -235,6 +278,7 @@ class FakeDockstore:
         #: What the workflow endpoint answers with, which a test can replace.
         self.workflow: dict[str, Any] = WORKFLOW
         self.workflow_versions: list[dict[str, Any]] = WORKFLOW_VERSIONS
+        self.workflow_source_files: list[dict[str, Any]] = WORKFLOW_SOURCE_FILES
 
     @property
     def transport(self) -> httpx2.MockTransport:
@@ -263,6 +307,16 @@ class FakeDockstore:
                 return httpx2.Response(200, json=self.workflow_versions[offset : offset + limit])
             case path if path == _path_endpoint("containers/path/tool", TOOL):
                 return self._entry(TOOL, TOOL_VERSIONS, wants_versions)
+            case "/api/entries/mapTrsVersionId":
+                return self._map_trs_version_id(request.url.params.get("trsVersionId", ""))
+            case path if path.startswith("/api/workflows/published/16247/workflowVersions/"):
+                return self._version(self.workflow_versions, path)
+            case "/api/workflows/16247/workflowVersions/117123/sourcefiles":
+                return httpx2.Response(200, json=self.workflow_source_files)
+            case path if path.startswith("/api/containers/published/188/tags/"):
+                return self._version(TOOL_VERSIONS, path)
+            case "/api/containers/188/tags/5011/sourcefiles":
+                return httpx2.Response(200, json=TOOL_SOURCE_FILES)
             case "/api/entries/16247/categories":
                 return httpx2.Response(200, json=CATEGORIES)
             case "/api/entries/188/categories":
@@ -271,6 +325,22 @@ class FakeDockstore:
                 return httpx2.Response(self.search_status, json=self.search_response)
             case _:
                 return httpx2.Response(404, json={"code": 404, "message": "Entry not found."})
+
+    def _map_trs_version_id(self, trs_version_id: str) -> httpx2.Response:
+        trs_id, _, name = trs_version_id.rpartition(":")
+        for entry, versions in ((self.workflow, self.workflow_versions), (TOOL, TOOL_VERSIONS)):
+            version = next((version for version in versions if version["name"] == name), None)
+            if entry["trsId"] == trs_id and version is not None:
+                return httpx2.Response(200, json={"entryId": entry["id"], "versionId": version["id"]})
+        return httpx2.Response(404, json={"code": 404, "message": "No published entry or version corresponds."})
+
+    @staticmethod
+    def _version(versions: list[dict[str, Any]], path: str) -> httpx2.Response:
+        version_id = path.rpartition("/")[2]
+        version = next((version for version in versions if str(version["id"]) == version_id), None)
+        if version is None:
+            return httpx2.Response(404, json={"code": 404, "message": "Version not found."})
+        return httpx2.Response(200, json=version)
 
     @staticmethod
     def _entry(payload: dict[str, Any], versions: list[dict[str, Any]], wants_versions: bool) -> httpx2.Response:

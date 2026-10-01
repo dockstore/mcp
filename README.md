@@ -13,9 +13,9 @@ MCP, so it is deployed alongside the Dockstore webservice rather than inside it.
 
 It is built on [FastMCP](https://gofastmcp.com) 4 and ships as a container image.
 
-> **Status: early.** `hello`, `search_entries`, and `get_entry` work. `get_version`
-> and `get_file` are declared — names, arguments, and response shapes — but each one
-> raises `NotImplementedError` until it is wired up to the Dockstore API.
+> **Status: early.** `hello`, `search_entries`, `get_entry`, and `get_version` work.
+> `get_file` is declared — name, arguments, and response shape — but it raises
+> `NotImplementedError` until it is wired up to the Dockstore API.
 
 ## Requirements
 
@@ -131,7 +131,7 @@ and does not check PyPI for updates on startup; see the
 | `get_version`    | Retrieves one version of an entry, with its file paths limited by default.        |
 | `get_file`       | Retrieves one file belonging to a version, with its content limited by default.   |
 
-`get_version` and `get_file` are scaffolding and are not implemented yet. The four
+`get_file` is scaffolding and is not implemented yet. The four
 form a chain: `search_entries` yields entry identifiers, an entry yields
 its versions, and a version yields file paths. `get_entry` returns at most
 `version_limit` versions (20 by default), in the order Dockstore ranks them (the default
@@ -165,6 +165,14 @@ its path. The prefix says which kind of entry the workflow endpoint should look 
 identifier with no prefix is looked for among tools first and apptools second, since the
 two share that form. It then fetches the categories the entry is filed under, from which
 it derives the entry's EDAM facets.
+
+`get_version` takes a version's TRS identifier and asks the webservice to map it to
+Dockstore's own entry and version ids (`GET /api/entries/mapTrsVersionId`), which finds
+only published entries and versions that are not hidden. It then reads the version by
+those ids — from `/api/containers/published/{id}/tags/{tagId}` for a tool, falling back
+to `/api/workflows/published/{id}/workflowVersions/{versionId}` for everything else —
+along with the version's source files, from which it takes the file paths and, from the
+primary descriptor's file type, the version's language.
 
 ## Layout
 
