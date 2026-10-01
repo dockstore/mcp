@@ -1,4 +1,4 @@
-.PHONY: help install git-hooks test lint format typecheck check run run-http docker-build docker-run clean
+.PHONY: help install git-hooks test smoke lint format typecheck check run run-http docker-build docker-run clean
 
 VENV ?= .venv
 PY   ?= $(VENV)/bin/python
@@ -22,6 +22,9 @@ git-hooks: ## Register the git-secrets hooks (requires git-secrets)
 
 test: ## Run the test suite
 	$(VENV)/bin/pytest
+
+smoke: ## Run the read-only smoke tests against the live Dockstore (set SMOKE_DOCKSTORE_URL to change it)
+	$(VENV)/bin/pytest tests/live -m live
 
 lint: ## Check formatting and lint rules
 	$(VENV)/bin/ruff check .
