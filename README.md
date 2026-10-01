@@ -170,9 +170,11 @@ it derives the entry's EDAM facets.
 Dockstore's own entry and version ids (`GET /api/entries/mapTrsVersionId`), which finds
 only published entries and versions that are not hidden. It then reads the version by
 those ids — from `/api/containers/published/{id}/tags/{tagId}` for a tool, falling back
-to `/api/workflows/published/{id}/workflowVersions/{versionId}` for everything else —
-along with the version's source files, from which it takes the file paths and, from the
-primary descriptor's file type, the version's language.
+to `/api/workflows/published/{id}/workflowVersions/{versionId}` for everything else.
+Alongside that, it asks TRS (`/api/ga4gh/trs/v2/tools/{id}/versions/{version_id}`) which
+descriptor types the version has, and lists the files for each type from
+`.../{type}/files`. File paths are the relative paths TRS reports, merged across types,
+and the language is that of the first type whose listing includes a primary descriptor.
 
 ## Layout
 

@@ -28,6 +28,7 @@ TODO: ``get_file`` is still scaffolding and raises ``NotImplementedError`` until
 it is wired up to the Dockstore API.
 """
 
+import asyncio
 import logging
 from collections.abc import Iterable
 from datetime import UTC, datetime
@@ -86,15 +87,16 @@ _WORKFLOW_SUBCLASSES = {"#workflow/": "BIOWORKFLOW", "#notebook/": "NOTEBOOK", "
 #: and apptools, which have no prefix, both live among the containers.
 _SITE_PATHS = {"#workflow/": "workflows", "#notebook/": "notebooks", "#service/": "services", "": "containers"}
 
-#: The language of each type of file Dockstore can hold as a descriptor.
-_DESCRIPTOR_FILE_TYPES = {
-    "DOCKSTORE_CWL": DescriptorLanguage.CWL,
-    "DOCKSTORE_WDL": DescriptorLanguage.WDL,
-    "NEXTFLOW_CONFIG": DescriptorLanguage.NEXTFLOW,
-    "NEXTFLOW": DescriptorLanguage.NEXTFLOW,
-    "DOCKSTORE_GXFORMAT2": DescriptorLanguage.GALAXY,
-    "DOCKSTORE_SMK": DescriptorLanguage.SNAKEMAKE,
-    "DOCKSTORE_JUPYTER": DescriptorLanguage.JUPYTER,
+#: The language each TRS descriptor type stands for.  A service's descriptor is
+#: not written in a language.
+_TRS_DESCRIPTOR_TYPES = {
+    "CWL": DescriptorLanguage.CWL,
+    "WDL": DescriptorLanguage.WDL,
+    "NFL": DescriptorLanguage.NEXTFLOW,
+    "GALAXY": DescriptorLanguage.GALAXY,
+    "SMK": DescriptorLanguage.SNAKEMAKE,
+    "JUPYTER": DescriptorLanguage.JUPYTER,
+    "SERVICE": None,
 }
 
 #: Dockstore files an entry under automatic categories whose names say which
@@ -172,8 +174,8 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
             The version.
         """
         trs_id, name = _version_identifier(version_id)
-        version, source_files = await _fetch_version(api, trs_id, name)
-        return _to_version(version, source_files, trs_id, settings, file_limit=file_limit)
+        version, files = await _fetch_version(api, trs_id, name)
+        return _to_version(version, files, trs_id, settings, file_limit=file_limit)
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     def get_file(
@@ -267,7 +269,9 @@ async def _fetch_entry(api: DockstoreApi, trs_id: str, *, version_limit: int | N
     return workflow | {"workflowVersions": versions}
 
 
-async def _fetch_version(api: DockstoreApi, trs_id: str, name: str) -> tuple[dict[str, Any], list[Any]]:
+async def _fetch_version(
+    api: DockstoreApi, trs_id: str, name: str
+) -> tuple[dict[str, Any], list[tuple[str, list[Any]]]]:
     """Fetch a published entry's visible version and its files, whichever kind of entry it belongs to."""
     trs_version_id = f"{trs_id}:{name}"
     try:
@@ -280,17 +284,38 @@ async def _fetch_version(api: DockstoreApi, trs_id: str, name: str) -> tuple[dic
     entry_id, version_id = ids.get("entryId"), ids.get("versionId")
     if entry_id is None or version_id is None:
         raise DockstoreError("Dockstore answered with a version that has no identifier.")
+    version, files = await asyncio.gather(
+        _fetch_version_by_ids(api, trs_id, entry_id, version_id),
+        _fetch_trs_files(api, trs_id, name),
+    )
+    return version, files
+
+
+async def _fetch_version_by_ids(api: DockstoreApi, trs_id: str, entry_id: Any, version_id: Any) -> dict[str, Any]:
+    """Fetch a version by the numbers Dockstore files it and its entry under."""
     prefix, _ = _split_trs_id(trs_id)
     if not prefix:
         # Tools and apptools share identifiers with no prefix, but only tools keep
         # their versions outside the workflows endpoint.
         try:
-            version = await api.get_object(f"/containers/published/{entry_id}/tags/{version_id}")
-            return version, await api.get_list(f"/containers/{entry_id}/tags/{version_id}/sourcefiles")
+            return await api.get_object(f"/containers/published/{entry_id}/tags/{version_id}")
         except NotFoundError:
             pass
-    version = await api.get_object(f"/workflows/published/{entry_id}/workflowVersions/{version_id}")
-    return version, await api.get_list(f"/workflows/{entry_id}/workflowVersions/{version_id}/sourcefiles")
+    return await api.get_object(f"/workflows/published/{entry_id}/workflowVersions/{version_id}")
+
+
+async def _fetch_trs_files(api: DockstoreApi, trs_id: str, name: str) -> list[tuple[str, list[Any]]]:
+    """Fetch the TRS listing of a version's files for each descriptor type it has, in TRS's order of types.
+
+    TRS lists a version's files one descriptor type at a time, and reports which
+    types a version has from the descriptors it actually holds.
+    """
+    endpoint = f"/ga4gh/trs/v2/tools/{quote(trs_id, safe='')}/versions/{quote(name, safe='')}"
+    tool_version = await api.get_object(endpoint)
+    types = tool_version.get("descriptor_type")
+    types = [type_ for type_ in types if isinstance(type_, str)] if isinstance(types, list) else []
+    listings = await asyncio.gather(*(api.get_list(f"{endpoint}/{type_}/files") for type_ in types))
+    return list(zip(types, listings, strict=True))
 
 
 def _dockstore_id(payload: dict[str, Any]) -> str:
@@ -375,28 +400,39 @@ def _to_entry(
 
 def _to_version(
     payload: dict[str, Any],
-    source_files: list[Any],
+    files_by_type: list[tuple[str, list[Any]]],
     trs_id: str,
     settings: Settings,
     *,
     file_limit: int | None,
 ) -> Version:
     """Map a Dockstore version payload and its files onto a :class:`Version`, trimmed to the limit given."""
-    files = [file for file in source_files if isinstance(file, dict) and isinstance(file.get("path"), str)]
-    descriptor = _descriptor(payload, files)
-    paths = [file["path"] for file in files]
-    if descriptor is not None:
+    paths: list[str] = []
+    descriptor_path: str | None = None
+    language: DescriptorLanguage | None = None
+    for type_, files in files_by_type:
+        for file in files:
+            if not isinstance(file, dict) or not isinstance(file.get("path"), str):
+                continue
+            # A file every language uses, such as a Dockerfile, is listed under each.
+            if file["path"] not in paths:
+                paths.append(file["path"])
+            # A tool can have a descriptor in each of two languages; the first is the primary one.
+            if descriptor_path is None and file.get("file_type") == "PRIMARY_DESCRIPTOR":
+                descriptor_path = file["path"]
+                language = _TRS_DESCRIPTOR_TYPES.get(type_)
+    if descriptor_path is not None:
         # The descriptor leads, so that no limit can cut it.
-        paths.remove(descriptor["path"])
-        paths.insert(0, descriptor["path"])
+        paths.remove(descriptor_path)
+        paths.insert(0, descriptor_path)
     name = payload.get("name")
     values: dict[str, Any] = {
         "id": f"{trs_id}:{name}" if name else None,
         "entry_id": trs_id,
         "name": name,
         "reference": payload.get("reference"),
-        "language": _DESCRIPTOR_FILE_TYPES[descriptor["type"]] if descriptor is not None else None,
-        "descriptor_path": descriptor["path"] if descriptor is not None else payload.get("workflow_path"),
+        "language": language,
+        "descriptor_path": descriptor_path,
         "file_paths": paths if file_limit is None else paths[:file_limit],
         "is_valid": payload.get("valid"),
         "is_verified": payload.get("verified"),
@@ -407,25 +443,6 @@ def _to_version(
         "url": _version_url(trs_id, name, settings),
     }
     return Version.model_validate(values)
-
-
-def _descriptor(payload: dict[str, Any], files: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Find the version's primary descriptor among its files.
-
-    A workflow names one descriptor path; a tool names one per language, with a
-    default for each whether or not the file exists, so its descriptor is the first
-    of them that Dockstore actually holds.
-    """
-    for key in ("workflow_path", "cwl_path", "wdl_path"):
-        path = payload.get(key)
-        if not isinstance(path, str) or not path:
-            continue
-        # Dockstore matches paths regardless of case and of a leading slash.
-        wanted = "/" + path.lstrip("/").lower()
-        match = next((file for file in files if "/" + file["path"].lstrip("/").lower() == wanted), None)
-        if match is not None and match.get("type") in _DESCRIPTOR_FILE_TYPES:
-            return match
-    return None
 
 
 def _version_doi(payload: dict[str, Any]) -> str | None:

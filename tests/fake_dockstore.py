@@ -17,12 +17,12 @@ The payloads below are trimmed copies of what dockstore.org answers with, kept
 down to the keys the tools read plus a few they should ignore.  They are the
 awkward cases on purpose: a workflow that spells things one way and a tool that
 spells the same things another, an author with no name, a tool with two
-descriptor languages, a tool that only implies where its source lives, and a tool
-version whose CWL descriptor path names a file that is not there.
+descriptor languages, and a tool that only implies where its source lives.
 """
 
 import json
 from typing import Any
+from urllib.parse import quote
 
 import httpx2
 
@@ -30,10 +30,10 @@ __all__ = [
     "CATEGORIES",
     "SEARCH_HITS",
     "TOOL",
-    "TOOL_SOURCE_FILES",
+    "TOOL_FILES",
     "TOOL_VERSIONS",
     "WORKFLOW",
-    "WORKFLOW_SOURCE_FILES",
+    "WORKFLOW_FILES",
     "WORKFLOW_VERSIONS",
     "FakeDockstore",
 ]
@@ -102,12 +102,22 @@ WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     },
 ]
 
-#: The files of the workflow's default version, as ``/workflows/{id}/workflowVersions/{versionId}/sourcefiles``
-#: returns them: sorted by path, which puts the descriptor last.
-WORKFLOW_SOURCE_FILES: list[dict[str, Any]] = [
-    {"id": 1, "type": "DOCKSTORE_YML", "path": "/.dockstore.yml", "absolutePath": "/.dockstore.yml", "content": "x"},
-    {"id": 2, "type": "GXFORMAT2_TEST_FILE", "path": "/pe-artic-variation-tests.yml", "content": "x"},
-    {"id": 3, "type": "DOCKSTORE_GXFORMAT2", "path": "/pe-artic-variation.ga", "content": "x"},
+#: The files of the workflow's default version, as TRS's
+#: ``/tools/{id}/versions/{versionId}/GALAXY/files`` lists them: sorted by path,
+#: which puts the descriptor last.
+WORKFLOW_FILES: list[dict[str, Any]] = [
+    {"path": ".dockstore.yml", "dockstore_absolute_path": "/.dockstore.yml", "file_type": "OTHER"},
+    {
+        "path": "pe-artic-variation-tests.yml",
+        "dockstore_absolute_path": "/pe-artic-variation-tests.yml",
+        "file_type": "TEST_FILE",
+    },
+    {
+        "path": "pe-artic-variation.ga",
+        "dockstore_absolute_path": "/pe-artic-variation.ga",
+        "file_type": "PRIMARY_DESCRIPTOR",
+        "checksum": {"checksum": "ab12", "type": "sha-256"},
+    },
 ]
 
 #: A published tool, as ``/containers/path/tool/{path}/published`` returns it.  A tool has
@@ -164,12 +174,18 @@ TOOL_VERSIONS: list[dict[str, Any]] = [
     }
 ]
 
-#: The files of the tool's tag, as ``/containers/{id}/tags/{tagId}/sourcefiles`` returns
-#: them.  There is no CWL descriptor, although the tag names a path for one.
-TOOL_SOURCE_FILES: list[dict[str, Any]] = [
-    {"id": 11, "type": "DOCKERFILE", "path": "/Dockerfile", "content": "FROM ubuntu"},
-    {"id": 12, "type": "DOCKSTORE_WDL", "path": "/Dockstore.wdl", "content": "workflow x {}"},
-]
+#: The files of the tool's tag, as TRS lists them for each of its two descriptor
+#: types.  The Dockerfile is listed under both.
+TOOL_FILES: dict[str, list[dict[str, Any]]] = {
+    "CWL": [
+        {"path": "Dockerfile", "dockstore_absolute_path": "/Dockerfile", "file_type": "CONTAINERFILE"},
+        {"path": "Dockstore.cwl", "dockstore_absolute_path": "/Dockstore.cwl", "file_type": "PRIMARY_DESCRIPTOR"},
+    ],
+    "WDL": [
+        {"path": "Dockerfile", "dockstore_absolute_path": "/Dockerfile", "file_type": "CONTAINERFILE"},
+        {"path": "Dockstore.wdl", "dockstore_absolute_path": "/Dockstore.wdl", "file_type": "PRIMARY_DESCRIPTOR"},
+    ],
+}
 
 #: The categories the workflow above has been filed under: one a person
 #: curated, and six from Dockstore's automatic categorization.
@@ -278,7 +294,8 @@ class FakeDockstore:
         #: What the workflow endpoint answers with, which a test can replace.
         self.workflow: dict[str, Any] = WORKFLOW
         self.workflow_versions: list[dict[str, Any]] = WORKFLOW_VERSIONS
-        self.workflow_source_files: list[dict[str, Any]] = WORKFLOW_SOURCE_FILES
+        #: What TRS lists as the files of the workflow's default version, by descriptor type.
+        self.workflow_files: dict[str, list[dict[str, Any]]] = {"GALAXY": WORKFLOW_FILES}
 
     @property
     def transport(self) -> httpx2.MockTransport:
@@ -311,12 +328,12 @@ class FakeDockstore:
                 return self._map_trs_version_id(request.url.params.get("trsVersionId", ""))
             case path if path.startswith("/api/workflows/published/16247/workflowVersions/"):
                 return self._version(self.workflow_versions, path)
-            case "/api/workflows/16247/workflowVersions/117123/sourcefiles":
-                return httpx2.Response(200, json=self.workflow_source_files)
             case path if path.startswith("/api/containers/published/188/tags/"):
                 return self._version(TOOL_VERSIONS, path)
-            case "/api/containers/188/tags/5011/sourcefiles":
-                return httpx2.Response(200, json=TOOL_SOURCE_FILES)
+            case path if path.startswith(_trs_version_endpoint(WORKFLOW["trsId"], "v0.5.2")):
+                return self._trs_version(path, _trs_version_endpoint(WORKFLOW["trsId"], "v0.5.2"), self.workflow_files)
+            case path if path.startswith(_trs_version_endpoint(TOOL["trsId"], "2.2.0")):
+                return self._trs_version(path, _trs_version_endpoint(TOOL["trsId"], "2.2.0"), TOOL_FILES)
             case "/api/entries/16247/categories":
                 return httpx2.Response(200, json=CATEGORIES)
             case "/api/entries/188/categories":
@@ -343,6 +360,17 @@ class FakeDockstore:
         return httpx2.Response(200, json=version)
 
     @staticmethod
+    def _trs_version(path: str, endpoint: str, files: dict[str, list[dict[str, Any]]]) -> httpx2.Response:
+        """Answer for a TRS tool version, which reports a descriptor type for each listing of files it has."""
+        rest = path.removeprefix(endpoint)
+        if not rest:
+            return httpx2.Response(200, json={"name": endpoint.rpartition("/")[2], "descriptor_type": list(files)})
+        type_, _, files_path = rest.removeprefix("/").partition("/")
+        if files_path != "files" or type_ not in files:
+            return httpx2.Response(404, json={"code": 404, "message": "Not found."})
+        return httpx2.Response(200, json=files[type_])
+
+    @staticmethod
     def _entry(payload: dict[str, Any], versions: list[dict[str, Any]], wants_versions: bool) -> httpx2.Response:
         return httpx2.Response(200, json=payload | {"workflowVersions": versions if wants_versions else None})
 
@@ -355,3 +383,8 @@ def _path_endpoint(endpoint: str, payload: dict[str, Any]) -> str:
     """Where Dockstore serves ``payload`` by its path, which goes in the request as one segment."""
     path = payload.get("full_workflow_path") or payload["tool_path"]
     return f"/api/{endpoint}/{path.replace('/', '%2F')}/published"
+
+
+def _trs_version_endpoint(trs_id: str, name: str) -> str:
+    """Where TRS serves a version, with the entry's identifier in the request as one segment."""
+    return f"/api/ga4gh/trs/v2/tools/{quote(trs_id, safe='')}/versions/{quote(name, safe='')}"
