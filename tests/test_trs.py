@@ -107,6 +107,7 @@ TEST_FILE_RESPONSE = {"checksum": [], "content": '{"input": 1}', "url": "https:/
 
 CONTAINERFILE_RESPONSE = {"checksum": [], "content": "FROM ubuntu:24.04\n", "url": "https://example.org/Dockerfile"}
 
+_VERSION_LIST_PATH = f"/tools/{TOOL_ID}/versions"
 _VERSION_PATH = f"/tools/{TOOL_ID}/versions/{VERSION_ID}"
 
 #: Canned responses, keyed by (decoded) path relative to the TRS API root.
@@ -114,7 +115,8 @@ RESPONSES: dict[str, Any] = {
     "/service-info": SERVICE_INFO_RESPONSE,
     "/toolClasses": TOOL_CLASSES_RESPONSE,
     f"/tools/{TOOL_ID}": TOOL_RESPONSE,
-    _VERSION_PATH: VERSION_RESPONSE,
+    # Only a single version's own endpoint fills in its description.
+    _VERSION_PATH: {**VERSION_RESPONSE, "description": "Calls variants."},
     f"{_VERSION_PATH}/CWL/descriptor": DESCRIPTOR_RESPONSE,
     f"{_VERSION_PATH}/CWL/descriptor/{SECONDARY_PATH}": DESCRIPTOR_RESPONSE,
     f"{_VERSION_PATH}/CWL/files": FILES_RESPONSE,
@@ -138,6 +140,20 @@ def _tools_page(request: httpx.Request) -> httpx.Response:
     last_page = request.url.copy_merge_params({"offset": str(len(CATALOG) // limit)})
     page = CATALOG[offset * limit : (offset + 1) * limit]
     return httpx.Response(200, json=page, headers={"last_page": str(last_page)})
+
+
+#: Every version the fake ``/tools/{id}/versions`` endpoint pages through: VERSION_RESPONSE, then six more.
+VERSIONS = [VERSION_RESPONSE, *({**VERSION_RESPONSE, "name": f"1.{i}", "description": ""} for i in range(1, 7))]
+
+
+def _versions_page(request: httpx.Request) -> httpx.Response:
+    """Serve one page of VERSIONS the way Dockstore does, with a ``next_page`` link while more remain."""
+    limit = int(request.url.params["limit"])
+    offset = int(request.url.params["offset"])
+    headers = {"current_limit": str(limit)}
+    if (offset + 1) * limit < len(VERSIONS):
+        headers["next_page"] = str(request.url.copy_merge_params({"offset": str(offset + 1)}))
+    return httpx.Response(200, json=VERSIONS[offset * limit : (offset + 1) * limit], headers=headers)
 
 
 #: The real class, captured before any test monkeypatches ``httpx.AsyncClient``.
@@ -177,6 +193,8 @@ def _mock_trs_api(monkeypatch: pytest.MonkeyPatch, requests_made: list[httpx.Req
             return overrides[path]
         if path == "/tools":
             return _tools_page(request)
+        if path == _VERSION_LIST_PATH:
+            return _versions_page(request)
         if path not in RESPONSES:
             return httpx.Response(404, json={"error": "not found"})
         return httpx.Response(200, json=RESPONSES[path])
@@ -325,6 +343,16 @@ async def test_list_tools_defaults_to_a_small_page(client: Client[Any], requests
     assert dict(requests_made[0].url.params) == {"limit": "20", "offset": "0"}
 
 
+async def test_list_tools_rejects_pages_larger_than_dockstore_serves(
+    client: Client[Any], requests_made: list[httpx.Request]
+) -> None:
+    # Dockstore would silently serve 100, throwing off the total and next_offset worked out for 101.
+    async with client:
+        with pytest.raises(ToolError):
+            await client.call_tool("list_tools", {"limit": 101})
+    assert requests_made == []
+
+
 async def test_list_tools_sends_only_given_filters(client: Client[Any], requests_made: list[httpx.Request]) -> None:
     async with client:
         result = await client.call_tool(
@@ -345,16 +373,23 @@ async def test_get_tool_encodes_the_id(client: Client[Any], requests_made: list[
         result = await client.call_tool("get_tool", {"tool_id": TOOL_ID})
     assert result.data.id == TOOL_ID
     assert result.data.organization == "org"
-    assert requests_made[0].url.raw_path.endswith(b"/tools/%23workflow%2Fgithub.com%2Forg%2Frepo%2Fname")
+    # The tool comes without its versions, which come a page at a time instead.
+    tool_path = b"/api/ga4gh/trs/v2/tools/%23workflow%2Fgithub.com%2Forg%2Frepo%2Fname"
+    assert {request.url.raw_path for request in requests_made} == {
+        tool_path + b"?includeVersions=false",
+        tool_path + b"/versions?limit=100&offset=0",
+    }
 
 
 async def test_get_tool_returns_full_versions_by_default(client: Client[Any]) -> None:
     async with client:
         result = await client.call_tool("get_tool", {"tool_id": TOOL_ID})
     assert result.structured_content is not None
-    [version] = result.structured_content["versions"]
-    assert version["name"] == VERSION_ID
-    assert version["images"][0]["registry_host"] == "quay.io"
+    versions = result.structured_content["versions"]
+    assert [version["name"] for version in versions] == [version["name"] for version in VERSIONS]
+    assert versions[0]["images"][0]["registry_host"] == "quay.io"
+    assert "description" not in versions[1]
+    assert result.structured_content["next_version_offset"] is None
 
 
 async def test_get_tool_summarizes_versions(client: Client[Any]) -> None:
@@ -362,15 +397,62 @@ async def test_get_tool_summarizes_versions(client: Client[Any]) -> None:
         result = await client.call_tool("get_tool", {"tool_id": TOOL_ID, "summary": True})
     assert result.structured_content is not None
     assert result.structured_content["organization"] == "org"
-    [version] = result.structured_content["versions"]
+    version = result.structured_content["versions"][0]
     assert set(version) == {"name", "meta_version", "is_production"}
     assert version["name"] == VERSION_ID
+
+
+@pytest.mark.parametrize(
+    ("version_offset", "names", "next_offset"), [(1, ["1.3", "1.4", "1.5"], 2), (2, ["1.6"], None)]
+)
+async def test_get_tool_pages_versions(
+    client: Client[Any],
+    requests_made: list[httpx.Request],
+    version_offset: int,
+    names: list[str],
+    next_offset: int | None,
+) -> None:
+    async with client:
+        result = await client.call_tool(
+            "get_tool", {"tool_id": TOOL_ID, "version_limit": 3, "version_offset": version_offset, "summary": True}
+        )
+    assert [version.name for version in result.data.versions] == names
+    assert (result.data.version_offset, result.data.version_limit) == (version_offset, 3)
+    assert result.data.next_version_offset == next_offset
+    [versions_request] = [request for request in requests_made if request.url.path.endswith("/versions")]
+    assert dict(versions_request.url.params) == {"limit": "3", "offset": str(version_offset)}
+
+
+async def test_get_tool_keeps_paging_past_an_empty_page(
+    client: Client[Any], _mock_trs_api: dict[str, httpx.Response]
+) -> None:
+    # Dockstore counts versions TRS then leaves out, so a page can be empty with more to come.
+    next_page = "https://staging.dockstore.org/api/ga4gh/trs/v2/tools/x/versions?limit=3&offset=1"
+    _mock_trs_api[_VERSION_LIST_PATH] = httpx.Response(
+        200, json=[], headers={"current_limit": "3", "next_page": next_page}
+    )
+
+    async with client:
+        result = await client.call_tool("get_tool", {"tool_id": TOOL_ID, "version_limit": 3})
+    assert (result.data.versions, result.data.next_version_offset) == ([], 1)
+
+
+async def test_get_tool_requires_a_dockstore_that_pages_versions(
+    client: Client[Any], _mock_trs_api: dict[str, httpx.Response]
+) -> None:
+    # Before SEAB-7771, Dockstore ignored limit and offset and sent every version, with no paging headers.
+    _mock_trs_api[_VERSION_LIST_PATH] = httpx.Response(200, json=VERSIONS)
+
+    async with client:
+        with pytest.raises(ToolError, match="does not page tool versions"):
+            await client.call_tool("get_tool", {"tool_id": TOOL_ID})
 
 
 async def test_get_tool_version(client: Client[Any], requests_made: list[httpx.Request]) -> None:
     async with client:
         result = await client.call_tool("get_tool_version", {"tool_id": TOOL_ID, "version_id": VERSION_ID})
     assert result.data.author == ["Jane Doe"]
+    assert result.data.description == "Calls variants."
     assert result.data.images[0].registry_host == "quay.io"
     assert result.data.images[0].checksum[0].type == "sha-256"
     assert result.data.descriptor_type_version == {"CWL": ["v1.0"]}

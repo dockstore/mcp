@@ -28,20 +28,22 @@ from urllib.parse import quote
 
 import httpx2 as httpx
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 from pydantic import Field
 
 from dockstore_mcp.casing import normalize_keys
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import (
     FileWrapper,
+    PageOfTools,
     Tool,
     ToolClass,
     ToolFile,
-    ToolPage,
     ToolSummary,
     ToolVersion,
     ToolVersionSummary,
     ToolVersionWithFiles,
+    ToolWithPageOfVersions,
     TrsDescriptorType,
     TrsInfo,
 )
@@ -56,6 +58,10 @@ REQUEST_TIMEOUT = 30.0
 #: its versions.
 DEFAULT_PAGE_SIZE = 20
 
+#: How many versions get_tool returns per page unless asked for more. Dockstore's own
+#: default of 1000 full versions comes to over half a megabyte.
+DEFAULT_VERSION_PAGE_SIZE = 100
+
 #: How much of a tool's description a summary keeps.
 SUMMARY_DESCRIPTION_LENGTH = 200
 
@@ -69,7 +75,9 @@ ToolId = Annotated[
 ]
 VersionId = Annotated[str, Field(description="Version name, e.g. 'master' or '1.0', as get_tool gives.")]
 DescriptorType = Annotated[TrsDescriptorType, Field(description="Descriptor language of the files to fetch.")]
-Limit = Annotated[int, Field(ge=1, le=1000, description="Most tools to return in this page.")]
+# Dockstore serves at most 100 tools a page, whatever limit it is sent.
+Limit = Annotated[int, Field(ge=1, le=100, description="Most tools to return in this page.")]
+VersionLimit = Annotated[int, Field(ge=1, le=1000, description="Most versions to return in this page.")]
 Summary = Annotated[
     bool,
     Field(
@@ -126,9 +134,9 @@ def _summarize(tool: Tool) -> ToolSummary:
     )
 
 
-def _last_page_offset(response: httpx.Response) -> int | None:
-    """The offset in a ``/tools`` response's ``last_page`` header, if it has one."""
-    link = response.headers.get("last_page")
+def _page_offset(response: httpx.Response, header: str) -> int | None:
+    """The offset in a paged response's ``header`` link, e.g. ``last_page`` or ``next_page``, if it has one."""
+    link = response.headers.get(header)
     offset = httpx.URL(link).params.get("offset") if link else None
     return int(offset) if offset is not None and offset.isdigit() else None
 
@@ -156,7 +164,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         """
         return (await get(path, params)).json()
 
-    async def get_tool_page(filters: dict[str, Any], limit: int, offset: int, summary: bool) -> ToolPage:
+    async def get_page_of_tools(filters: dict[str, Any], limit: int, offset: int, summary: bool) -> PageOfTools:
         """Fetch one page of ``/tools`` matching ``filters``, and work out the total across every page.
 
         Dockstore reports the last page's offset in a ``last_page`` header but no
@@ -167,7 +175,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         response = await get("/tools", {**filters, "limit": limit, "offset": offset})
         tools = [Tool.model_validate(item) for item in response.json()]
         total = None
-        last_offset = _last_page_offset(response)
+        last_offset = _page_offset(response, "last_page")
         if last_offset is not None:
             if last_offset == offset:
                 last_page_size = len(tools)
@@ -176,7 +184,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
                 last_page_size = len(last_page)
             total = last_offset * limit + last_page_size
         more = total is not None and (offset + 1) * limit < total
-        return ToolPage(
+        return PageOfTools(
             tools=[_summarize(tool) for tool in tools] if summary else tools,
             offset=offset,
             limit=limit,
@@ -246,7 +254,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         limit: Limit = DEFAULT_PAGE_SIZE,
         offset: Offset = 0,
         summary: Summary = False,
-    ) -> ToolPage:
+    ) -> PageOfTools:
         """List one page of the tools and workflows this Dockstore instance's TRS API serves, optionally filtered.
 
         With no filters this pages through everything; narrow it by name, language,
@@ -274,7 +282,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             "checker": None if checker is None else str(checker).lower(),
         }
         params = {key: value for key, value in filters.items() if value is not None}
-        return await get_tool_page(params, limit, offset, summary)
+        return await get_page_of_tools(params, limit, offset, summary)
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
     async def get_tool(
@@ -288,20 +296,47 @@ def register(mcp: FastMCP, settings: Settings) -> None:
                 )
             ),
         ] = False,
-    ) -> Tool:
-        """Retrieve one tool or workflow by its TRS id, including every one of its versions.
+        version_limit: VersionLimit = DEFAULT_VERSION_PAGE_SIZE,
+        version_offset: Offset = 0,
+    ) -> ToolWithPageOfVersions:
+        """Retrieve one tool or workflow by its TRS id, with one page of its versions.
 
         Each version's ``name`` is what the version tools take as ``version_id``, and
-        its ``descriptor_type`` lists the languages its files can be fetched in.
+        its ``descriptor_type`` lists the languages its files can be fetched in. A
+        workflow's versions come most recently modified first; a Docker tool's, by name.
 
         A workflow in a monorepo can have a version for every branch and tag of its
         repository, over a thousand of them, so ask for a ``summary`` unless you need
-        each version's images or authors.
+        each version's images or authors. Fetch the next page by passing
+        ``next_version_offset`` as ``version_offset`` (a page number, not an item index).
+        Keep going until it is unset: a page can come back short, or even empty, before the last.
+
+        Paging only speeds up the response for workflows, where Dockstore pages in the database,
+        so a small page is both quicker and smaller than all versions at once. For a Docker tool
+        Dockstore pages in Java after loading every version, so a small page is smaller but no quicker.
 
         Returns:
-            The tool's metadata and every one of its versions, in full or (if ``summary``) summarized.
+            The tool's metadata and one page of its versions, in full or (if ``summary``) summarized,
+            plus the next page's offset.
         """
-        tool = Tool.model_validate(await get_json(f"/tools/{_segment(tool_id)}"))
+        path = f"/tools/{_segment(tool_id)}"
+        # The tool's versions come from the paged /versions instead, so skip loading them here.
+        data, response = await asyncio.gather(
+            get_json(path, {"includeVersions": "false"}),
+            get(f"{path}/versions", {"limit": version_limit, "offset": version_offset}),
+        )
+        if "current_limit" not in response.headers:
+            # Dockstore before SEAB-7771 ignores limit and offset and returns every version.
+            raise ToolError(f"{settings.dockstore_url} does not page tool versions, so get_tool cannot list them.")
+        tool = ToolWithPageOfVersions.model_validate(
+            {
+                **data,
+                "versions": response.json(),
+                "version_offset": version_offset,
+                "version_limit": version_limit,
+                "next_version_offset": _page_offset(response, "next_page"),
+            }
+        )
         if summary and tool.versions is not None:
             tool.versions = [
                 ToolVersionSummary.model_validate(version, from_attributes=True) for version in tool.versions

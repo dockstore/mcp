@@ -38,6 +38,7 @@ __all__ = [
     "FileField",
     "FileWrapper",
     "ImageData",
+    "PageOfTools",
     "ServiceOrganization",
     "ServiceType",
     "SortBy",
@@ -45,11 +46,11 @@ __all__ = [
     "Tool",
     "ToolClass",
     "ToolFile",
-    "ToolPage",
     "ToolSummary",
     "ToolVersion",
     "ToolVersionSummary",
     "ToolVersionWithFiles",
+    "ToolWithPageOfVersions",
     "TrsDescriptorType",
     "TrsInfo",
     "Version",
@@ -327,6 +328,21 @@ class Tool(BaseModel):
     )
 
 
+class ToolWithPageOfVersions(Tool):
+    """A GA4GH TRS tool with one page of its versions, as get_tool returns it."""
+
+    versions: list[ToolVersion] | list[ToolVersionSummary] | None = Field(
+        default=None,
+        union_mode="left_to_right",
+        description="One page of the tool's versions, in full or (if summarized) just their names and status.",
+    )
+    version_offset: int = Field(description="Which page of versions this is, counting from 0.")
+    version_limit: int = Field(description="Most versions a page holds.")
+    next_version_offset: int | None = Field(
+        default=None, description="Offset of the next page of versions; unset when this is the last page."
+    )
+
+
 class ToolSummary(BaseModel):
     """The handful of fields that identify a TRS tool in a list, without its README or version details."""
 
@@ -351,7 +367,7 @@ class ToolSummary(BaseModel):
     description: str | None = Field(default=None, description="The start of the tool's description, shortened.")
 
 
-class ToolPage(BaseModel):
+class PageOfTools(BaseModel):
     """One page of TRS tools, with enough context to fetch the rest."""
 
     tools: list[Tool] | list[ToolSummary] = Field(
@@ -392,6 +408,8 @@ class ToolFile(BaseModel):
 class ToolVersionWithFiles(ToolVersion):
     """One version of a GA4GH TRS tool, optionally with its file listing."""
 
+    # Dockstore only fills this in here: in a tool's list of versions, it is always empty.
+    description: str | None = Field(default=None, description="Description of this version, if it has its own.")
     files: list[ToolFile] | None = Field(
         default=None, description="Every file of this version in the requested descriptor language, if asked for."
     )
