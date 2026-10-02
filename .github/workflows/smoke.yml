@@ -1,0 +1,45 @@
+name: Smoke
+
+# Read-only checks against the live dockstore.org. They report only: nothing calls this workflow,
+# so a failure marks this run red without blocking a PR, a merge, or an image publish.
+on:
+  schedule:
+    - cron: "17 1 * * *"
+      timezone: "America/New_York"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke tests against dockstore.org
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: Smoke test
+        env:
+          SMOKE_DOCKSTORE_URL: https://dockstore.org
+        run: pytest tests/live -m live --junitxml=smoke.xml -o junit_family=legacy
+      - name: Summarize failures
+        if: failure()
+        run: echo "Smoke tests against dockstore.org failed; see the pytest output above. This does not block merges." >> "$GITHUB_STEP_SUMMARY"
+      # Test analytics only (no coverage); runs even when tests fail so failures are reported
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          files: smoke.xml
+          report_type: test_results
+          flags: smoke
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
