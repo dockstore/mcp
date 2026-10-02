@@ -29,7 +29,17 @@ jobs:
       - name: Smoke test
         env:
           SMOKE_DOCKSTORE_URL: https://dockstore.org
-        run: pytest tests/live -m live --junitxml=smoke.xml
+        run: pytest tests/live -m live --junitxml=smoke.xml -o junit_family=legacy
       - name: Summarize failures
         if: failure()
         run: echo "Smoke tests against dockstore.org failed; see the pytest output above. This does not block merges." >> "$GITHUB_STEP_SUMMARY"
+      # Test analytics only (no coverage); runs even when tests fail so failures are reported
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          files: smoke.xml
+          report_type: test_results
+          flags: smoke
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
