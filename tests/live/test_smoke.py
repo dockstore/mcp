@@ -73,7 +73,7 @@ async def find_workflow_with_files(client: Client[Any]) -> tuple[str, str, str, 
             primary = [file for file in files if file.get("file_type") == "PRIMARY_DESCRIPTOR"]
             if primary:
                 return tool["id"], version_name, languages[0], primary[0]["path"]
-    pytest.fail("no tool on the first page of list_tools had a version with a primary descriptor file")
+    raise AssertionError("no tool on the first page of list_tools had a version with a primary descriptor file")
 
 
 async def test_trs_info_reaches_dockstore(live_client: Client[Any]) -> None:
