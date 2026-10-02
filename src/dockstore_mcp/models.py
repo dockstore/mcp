@@ -32,6 +32,7 @@ __all__ = [
     "EntrySummary",
     "EntryType",
     "File",
+    "FileSummary",
     "ReferenceType",
     "SortBy",
     "SortOrder",
@@ -172,6 +173,13 @@ class Entry(BaseModel):
     url: str | None = Field(default=None, description="Address of the entry's page on Dockstore.")
 
 
+class FileSummary(BaseModel):
+    """The handful of fields that identify one of a version's files."""
+
+    path: str = Field(description="Path of the file within the version; pass this to get_file.")
+    file_type: str | None = Field(default=None, description="What the file is, for example a primary descriptor.")
+
+
 class Version(BaseModel):
     """One version of a Dockstore entry.
 
@@ -195,10 +203,10 @@ class Version(BaseModel):
         default=None, description="Language this version's descriptor is written in."
     )
     descriptor_path: str | None = Field(default=None, description="Path of the primary descriptor within the version.")
-    file_paths: list[str] | None = Field(
+    files: list[FileSummary] | None = Field(
         default=None,
-        description="Paths of the files, the primary descriptor first and no more than get_version's file_limit; "
-        "pass one to get_file.",
+        description="The version's files, the primary descriptor first and no more than get_version's file_limit; "
+        "pass a file's path to get_file.",
     )
     is_valid: bool | None = Field(default=None, description="Whether Dockstore could parse the descriptor.")
     is_verified: bool | None = Field(default=None, description="Whether the version has been verified.")

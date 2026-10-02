@@ -433,6 +433,11 @@ async def _get_version(client: Client[Any], **arguments: Any) -> Any:
     return result.data
 
 
+def _paths(version: Any) -> list[str]:
+    """Return the paths of a version's files, in order."""
+    return [file.path for file in version.files]
+
+
 #: Where TRS serves the canned workflow's default version.
 TRS_VERSION_PATH = (
     "/api/ga4gh/trs/v2/tools/%23workflow%2Fgithub.com%2Fiwc-workflows%2Fsars-cov-2-variant-calling"
@@ -475,21 +480,25 @@ async def test_get_version_returns_every_field(client: Client[Any], dockstore: F
 
 async def test_get_version_puts_the_descriptor_first(client: Client[Any]) -> None:
     version = await _get_version(client, version_id=VERSION_ID)
-    assert version.file_paths == ["pe-artic-variation.ga", ".dockstore.yml", "pe-artic-variation-tests.yml"]
+    assert [(file.path, file.file_type) for file in version.files] == [
+        ("pe-artic-variation.ga", "primary_descriptor"),
+        (".dockstore.yml", "other"),
+        ("pe-artic-variation-tests.yml", "test_file"),
+    ]
 
 
 async def test_get_version_never_cuts_the_descriptor(client: Client[Any]) -> None:
     version = await _get_version(client, version_id=VERSION_ID, file_limit=1)
-    assert version.file_paths == ["pe-artic-variation.ga"]
+    assert _paths(version) == ["pe-artic-variation.ga"]
 
 
 async def test_get_version_takes_a_file_limit(client: Client[Any], dockstore: FakeDockstore) -> None:
     dockstore.workflow_files = {
         "GALAXY": WORKFLOW_FILES + [{"path": f"data/{number:03}.txt", "file_type": "OTHER"} for number in range(150)]
     }
-    assert len((await _get_version(client, version_id=VERSION_ID)).file_paths) == 100
-    assert len((await _get_version(client, version_id=VERSION_ID, file_limit=2)).file_paths) == 2
-    assert len((await _get_version(client, version_id=VERSION_ID, file_limit=None)).file_paths) == 153
+    assert len((await _get_version(client, version_id=VERSION_ID)).files) == 100
+    assert len((await _get_version(client, version_id=VERSION_ID, file_limit=2)).files) == 2
+    assert len((await _get_version(client, version_id=VERSION_ID, file_limit=None)).files) == 153
 
 
 async def test_get_version_reports_a_missing_descriptor(client: Client[Any], dockstore: FakeDockstore) -> None:
@@ -497,7 +506,7 @@ async def test_get_version_reports_a_missing_descriptor(client: Client[Any], doc
     version = await _get_version(client, version_id=VERSION_ID)
     assert version.descriptor_path is None
     assert version.language is None
-    assert version.file_paths == [".dockstore.yml", "pe-artic-variation-tests.yml"]
+    assert _paths(version) == [".dockstore.yml", "pe-artic-variation-tests.yml"]
 
 
 async def test_get_version_lists_no_files_without_a_descriptor_type(
@@ -505,14 +514,14 @@ async def test_get_version_lists_no_files_without_a_descriptor_type(
 ) -> None:
     dockstore.workflow_files = {}
     version = await _get_version(client, version_id=VERSION_ID)
-    assert (version.descriptor_path, version.language, version.file_paths) == (None, None, [])
+    assert (version.descriptor_path, version.language, version.files) == (None, None, [])
 
 
 async def test_get_version_skips_types_with_only_shared_files(client: Client[Any], dockstore: FakeDockstore) -> None:
     """TRS lists a .dockstore.yml under every type, but that does not make the version a CWL one."""
     version = await _get_version(client, version_id=VERSION_ID)
     assert version.language == DescriptorLanguage.GALAXY
-    assert version.file_paths.count(".dockstore.yml") == 1
+    assert _paths(version).count(".dockstore.yml") == 1
 
 
 async def test_get_version_finds_a_tools_version(client: Client[Any], dockstore: FakeDockstore) -> None:
@@ -533,7 +542,12 @@ async def test_get_version_merges_a_tools_files_across_languages(client: Client[
     # The first language's descriptor is the primary one.
     assert version.descriptor_path == "Dockstore.cwl"
     assert version.language == DescriptorLanguage.CWL
-    assert version.file_paths == ["Dockstore.cwl", "Dockerfile", "Dockstore.wdl"]
+    assert [(file.path, file.file_type) for file in version.files] == [
+        ("Dockstore.cwl", "primary_descriptor"),
+        ("Dockerfile", "containerfile"),
+        # The second language's descriptor is primary in its own listing.
+        ("Dockstore.wdl", "primary_descriptor"),
+    ]
     files = sorted(path.rpartition("/versions/2.2.0")[2] for path in dockstore.paths() if "/trs/" in path)
     assert files == ["/CWL/files", "/WDL/files"]
 

@@ -43,6 +43,7 @@ from dockstore_mcp.models import (
     Entry,
     EntryType,
     File,
+    FileSummary,
     ReferenceType,
     Version,
     VersionSummary,
@@ -172,14 +173,14 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         A version is a tag, branch, or snapshot of an entry, and it is the level at
         which descriptors and other files exist. Version identifiers come from
         ``get_entry``. To read one of the version's files, take a path from the returned
-        ``file_paths`` and pass it to ``get_file``.
+        ``files`` and pass it to ``get_file``.
 
         Args:
             version_id: TRS identifier of the version, as returned by ``get_entry``: the
                 entry's TRS identifier and the version name joined by a colon, such as
                 '#workflow/github.com/org/repo/name:v1.0'.
-            file_limit: The most ``file_paths`` to return, starting with the
-                ``descriptor_path``, which is never cut. Pass null to get every path.
+            file_limit: The most ``files`` to return, starting with the primary
+                descriptor, which is never cut. Pass null to get every file.
 
         Returns:
             The version.
@@ -197,7 +198,7 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
         """Retrieve one file belonging to a version of a Dockstore entry.
 
         This is how to read a descriptor, a test parameter file, or anything else
-        Dockstore holds for a version. Paths come from a version's ``file_paths``, and
+        Dockstore holds for a version. Paths come from a version's ``files``, and
         the primary descriptor is at its ``descriptor_path``.
 
         Args:
@@ -463,7 +464,7 @@ def _to_version(
     file_limit: int | None,
 ) -> Version:
     """Map a Dockstore version payload and its files onto a :class:`Version`, trimmed to the limit given."""
-    paths: list[str] = []
+    summaries: dict[str, FileSummary] = {}
     descriptor_path: str | None = None
     language: DescriptorLanguage | None = None
     for type_, files in files_by_type:
@@ -471,16 +472,16 @@ def _to_version(
             if not isinstance(file, dict) or not isinstance(file.get("path"), str):
                 continue
             # A file every language uses, such as a Dockerfile, is listed under each.
-            if file["path"] not in paths:
-                paths.append(file["path"])
+            if file["path"] not in summaries:
+                summaries[file["path"]] = FileSummary(path=file["path"], file_type=_file_type(file.get("file_type")))
             # A tool can have a descriptor in each of two languages; the first is the primary one.
             if descriptor_path is None and file.get("file_type") == "PRIMARY_DESCRIPTOR":
                 descriptor_path = file["path"]
                 language = _TRS_DESCRIPTOR_TYPES.get(type_)
     if descriptor_path is not None:
         # The descriptor leads, so that no limit can cut it.
-        paths.remove(descriptor_path)
-        paths.insert(0, descriptor_path)
+        summaries = {descriptor_path: summaries.pop(descriptor_path), **summaries}
+    ordered = list(summaries.values())
     name = payload.get("name")
     values: dict[str, Any] = {
         "id": f"{trs_id}:{name}" if name else None,
@@ -491,7 +492,7 @@ def _to_version(
         "authors": _values_of(payload.get("authors"), "name"),
         "language": language,
         "descriptor_path": descriptor_path,
-        "file_paths": paths if file_limit is None else paths[:file_limit],
+        "files": ordered if file_limit is None else ordered[:file_limit],
         "is_valid": payload.get("valid"),
         "is_verified": payload.get("verified"),
         "is_frozen": payload.get("frozen"),
@@ -505,17 +506,21 @@ def _to_version(
 
 def _to_file(listed: dict[str, Any], wrapper: dict[str, Any], *, content_limit: int | None) -> File:
     """Map TRS's listing of a file and the file itself onto a :class:`File`, trimmed to the limit given."""
-    file_type = listed.get("file_type")
     values: dict[str, Any] = {
         "path": listed.get("path"),
         "absolute_path": wrapper.get("dockstore_absolute_path") or listed.get("dockstore_absolute_path"),
-        "file_type": file_type.lower() if isinstance(file_type, str) else None,
+        "file_type": _file_type(listed.get("file_type")),
         "content": _truncate(wrapper.get("content"), content_limit),
         # The file lists its checksums, where the listing has room for only one.
         "checksums": _checksums(wrapper.get("checksum")) or _checksums([listed.get("checksum")]),
         "url": wrapper.get("url"),
     }
     return File.model_validate(values)
+
+
+def _file_type(value: Any) -> str | None:
+    """Spell a TRS file type the way the tools report it, such as 'primary_descriptor'."""
+    return value.lower() if isinstance(value, str) else None
 
 
 def _checksums(checksums: Any) -> dict[str, str] | None:
