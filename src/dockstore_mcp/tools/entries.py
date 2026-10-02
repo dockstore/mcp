@@ -487,6 +487,8 @@ def _to_version(
         "entry_id": trs_id,
         "name": name,
         "reference": payload.get("reference"),
+        "reference_type": _reference_type(payload.get("referenceType")),
+        "authors": _values_of(payload.get("authors"), "name"),
         "language": language,
         "descriptor_path": descriptor_path,
         "file_paths": paths if file_limit is None else paths[:file_limit],

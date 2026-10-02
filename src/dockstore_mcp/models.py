@@ -187,6 +187,10 @@ class Version(BaseModel):
     entry_id: str | None = Field(default=None, description="GA4GH TRS identifier of the entry this version belongs to.")
     name: str | None = Field(default=None, description="Version name, usually a tag or branch.")
     reference: str | None = Field(default=None, description="Source control reference the version was built from.")
+    reference_type: ReferenceType | None = Field(
+        default=None, description="Whether the version was built from a tag, a branch, or a commit."
+    )
+    authors: list[str] | None = Field(default=None, description="Authors credited on the version.")
     language: DescriptorLanguage | None = Field(
         default=None, description="Language this version's descriptor is written in."
     )

@@ -450,6 +450,8 @@ async def test_get_version_returns_every_field(client: Client[Any], dockstore: F
     assert version.entry_id == WORKFLOW_ID
     assert version.name == "v0.5.2"
     assert version.reference == "v0.5.2"
+    assert version.reference_type == ReferenceType.TAG
+    assert version.authors == ["Wolfgang Maier"]  # The author with no name is skipped.
     assert version.language == DescriptorLanguage.GALAXY
     assert version.descriptor_path == "pe-artic-variation.ga"
     assert (version.is_valid, version.is_verified, version.is_frozen) == (True, True, True)
@@ -517,6 +519,8 @@ async def test_get_version_finds_a_tools_version(client: Client[Any], dockstore:
     version = await _get_version(client, version_id=f"{TOOL_ID}:2.2.0")
     assert version.id == f"{TOOL_ID}:2.2.0"
     assert version.entry_id == TOOL_ID
+    assert version.reference_type == ReferenceType.BRANCH
+    assert version.authors == []
     assert version.doi is None
     assert version.updated_at == datetime(2022, 3, 31, 21, 37, 31, tzinfo=UTC)
     assert version.url == "https://staging.dockstore.org/containers/quay.io/pancancer/pcawg-dkfz-workflow:2.2.0"

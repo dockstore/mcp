@@ -91,6 +91,7 @@ WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "verified": True,
         "valid": True,
         "frozen": True,
+        "authors": [{"name": "Wolfgang Maier", "email": None}, {"name": None, "email": "nobody@example.org"}],
         "hidden": False,
         "workflow_path": "/pe-artic-variation.ga",
         "dois": {
