@@ -23,10 +23,12 @@ make lint         # ruff check + ruff format --check
 make format       # ruff check --fix + ruff format
 make typecheck    # mypy (strict mode)
 make check        # everything CI runs: lint, typecheck, test
-make smoke        # read-only smoke tests against the live dockstore.org (tests/live; not part of check)
+make smoke        # opt-in, read-only tests against the live dockstore.org; not run by make test, make check, or PR CI
 make run          # run the server over stdio
 make run-http     # run the server over HTTP on port 8000
 ```
+
+Tests in `tests/live` are marked `live` and deselected by default; the daily `smoke.yml` workflow runs them.
 
 Run a single test with pytest directly (no Makefile target for this):
 

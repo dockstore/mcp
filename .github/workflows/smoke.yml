@@ -4,7 +4,8 @@ name: Smoke
 # so a failure marks this run red without blocking a PR, a merge, or an image publish.
 on:
   schedule:
-    - cron: "17 6 * * *"
+    - cron: "17 1 * * *"
+      timezone: "America/New_York"
   workflow_dispatch:
 
 permissions:
