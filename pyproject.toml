@@ -51,7 +51,8 @@ packages = ["src/dockstore_mcp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-ra"
+addopts = "-ra -m 'not live'"
+markers = ["live: talks to a real Dockstore over the network; run with `make smoke`"]
 
 [tool.ruff]
 line-length = 120
