@@ -13,10 +13,9 @@ MCP, so it is deployed alongside the Dockstore webservice rather than inside it.
 
 It is built on [FastMCP](https://gofastmcp.com) 4 and ships as a container image.
 
-> **Status: prototype without search.** The GA4GH TRS tools (`get_trs_info` through
-> `get_tool_descriptor_by_path`) have working bodies; the other four Dockstore tools are
-> declared — names, arguments, and response shapes — but each one raises
-> `NotImplementedError` until it is wired up to the Dockstore API.
+> **Status: early.** All of the tools work: the GA4GH TRS tools (`get_trs_info` through
+> `get_tool_descriptor_by_path`) and the four Dockstore tools (`search_entries`, `get_entry`,
+> `get_version`, and `get_file`).
 
 ## Requirements
 
@@ -59,7 +58,7 @@ Over HTTP it serves two paths:
 
 | Path      | Purpose                                             |
 | --------- | --------------------------------------------------- |
-| `/mcp`    | The MCP endpoint (streamable HTTP)                  |
+| `/mcp`    | The MCP endpoint (stateless streamable HTTP)        |
 | `/health` | Liveness probe, returns `{"status": "ok", ...}`     |
 
 ### With a container
@@ -134,10 +133,10 @@ the full list.
 | `get_tool`                    | ✅          | Retrieves one TRS tool by id, with a page of its versions in full or summarized.     |
 | `get_tool_version`            | ✅          | Retrieves one version of a TRS tool: authors, images, languages, optionally files.   |
 | `get_tool_descriptor_by_path` | ✅          | Fetches a version's primary descriptor, or any file get_tool_version lists, by path. |
-| `search_entries`              | ❌          | Searches entries by keyword and facet, the equivalent of the site's Search page.     |
-| `get_entry`                   | ❌          | Retrieves the requested fields of one entry.                                         |
-| `get_version`                 | ❌          | Retrieves the requested fields of one version of an entry.                           |
-| `get_file`                    | ❌          | Retrieves the requested fields of one file belonging to a version.                   |
+| `search_entries`              | ✅          | Searches entries by keyword and facet, the equivalent of the site's Search page.     |
+| `get_entry`                   | ✅          | Retrieves one entry, with its versions and description limited by default.          |
+| `get_version`                 | ✅          | Retrieves one version of an entry, with its file paths limited by default.           |
+| `get_file`                    | ✅          | Retrieves one file belonging to a version, with its content limited by default.      |
 
 The TRS tools, from `get_trs_info` to `get_tool_descriptor_by_path`, call Dockstore's GA4GH
 TRS V2 API directly. They form a chain: `list_tools` yields tool ids, a
@@ -145,16 +144,62 @@ tool yields version names, and `get_tool_version` with `files` yields the paths 
 `get_tool_descriptor_by_path` takes. Pass `summary` to `list_tools` to get
 each tool's id, languages, and version names without its full README and version details.
 
-The last four are scaffolding and are not implemented yet. They are a chain too:
-`search_entries` yields entry identifiers, an entry yields version identifiers, and a
-version yields file paths. Each lookup takes a list of fields so that a caller can ask
-for a name and a date without also pulling down a README or a whole descriptor.
+The other four are a chain too: `search_entries` yields entry identifiers, an entry yields
+its versions, and a version yields file paths. `get_entry` returns at most
+`version_limit` versions (20 by default), in the order Dockstore ranks them (the default
+version first), and at most `description_limit` characters of the description (5,000 by
+default); setting either limit to null returns them in full. `get_version` returns at
+most `file_limit` file paths (100 by default), the primary descriptor first; null returns
+them all. `get_file` returns at most `content_limit` characters of the file (50,000 by
+default); null returns the whole file.
+
+`search_entries` sends an Elasticsearch query to Dockstore's TRS extension,
+`POST /api/ga4gh/v2/extended/tools/entry/_search`, which searches the same index as the
+site's Search page. Keywords are ranked with the Search page's weights. The entry
+type, descriptor language, author, and EDAM facets (subject area, operation, and
+input and output data and formats) are filters. Keywords, author, and EDAM facets are
+written in Lucene query syntax and sent as `query_string` queries. Results can be sorted by relevance
+(with keywords, the square of the Elasticsearch score times the natural log of 1.05 plus the entry's
+indexed `relevance`),
+name, stars, or last update, and a call returns up to 200 of them (20 by default)
+along with the total number that matched. Each result carries the entry's categories and
+EDAM facets as the index files them, so they cost no extra request. Services are not indexed, so they cannot be
+searched for.
+
+Entries and versions are identified by their GA4GH TRS identifiers, which every tool
+reports as `id`. An entry's is its path behind a prefix naming its kind
+(`#workflow/github.com/org/repo/name`, `#notebook/…`, `#service/…`), or its bare path for a
+tool or an apptool (`quay.io/org/repo`). A version's is its entry's TRS identifier and its
+name joined by a colon (`#workflow/github.com/org/repo/name:v1.0`).
+
+`get_entry` takes an entry's TRS identifier and reads the entry from the webservice by
+its path. The prefix says which kind of entry the workflow endpoint should look for; an
+identifier with no prefix is looked for among tools first and apptools second, since the
+two share that form. It then fetches the categories the entry is filed under, from which
+it derives the entry's EDAM facets.
+
+`get_version` takes a version's TRS identifier and asks the webservice to map it to
+Dockstore's own entry and version ids (`GET /api/entries/mapTrsVersionId`), which finds
+only published entries and versions that are not hidden. It then reads the version by
+those ids — from `/api/containers/published/{id}/tags/{tagId}` for a tool, falling back
+to `/api/workflows/published/{id}/workflowVersions/{versionId}` for everything else.
+Alongside that, it asks TRS (`/api/ga4gh/trs/v2/tools/{id}/versions/{version_id}`) which
+descriptor types the version has, and lists the files for each type from
+`.../{type}/files`. File paths are the relative paths TRS reports, merged across types,
+and the language is that of the first type whose listing includes a primary descriptor.
+
+`get_file` takes a version's TRS identifier and a path from `get_version`. It lists the
+version's files from TRS the same way, finds the first descriptor type whose listing has
+the path, which says what kind of file it is, and then reads the file from
+`.../{type}/descriptor/{relative_path}`, with the path percent-encoded as one segment.
+That endpoint serves any of a version's files, not only descriptors.
 
 ## Layout
 
 ```
 src/dockstore_mcp/
 ├── __main__.py      command line entry point (`dockstore-mcp`)
+├── api.py           HTTP client for the Dockstore webservice
 ├── casing.py        camelCase JSON -> snake_case models, for API-backed tools
 ├── config.py        settings, read from the environment
 ├── models.py        entry, version, and file types shared by the tools
@@ -171,8 +216,11 @@ Dockerfile           two-stage build of the deployable image
 ### Adding a tool
 
 Add a module under `src/dockstore_mcp/tools/` that exposes
-`register(mcp: FastMCP, settings: Settings) -> None`, and call it from
-`register_all` in `tools/__init__.py`. Group related tools in one module.
+`register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None`, and call it
+from `register_all` in `tools/__init__.py`. Group related tools in one module. The
+`api` argument is the shared HTTP client; reach Dockstore through it rather than
+opening a connection of your own, so that calls reuse the connection pool and the
+server can close it on shutdown.
 
 Keep tool docstrings written for the model that will read them: say what the tool
 returns and when to reach for it. Note that FastMCP can also generate tools directly
@@ -187,7 +235,9 @@ make format     # apply ruff formatting and safe fixes
 ```
 
 Tests use FastMCP's in-memory client, so they exercise real tool dispatch without
-starting a server or opening a socket.
+starting a server or opening a socket. Tools that call Dockstore are pointed at
+`tests/fake_dockstore.py`, which answers from trimmed copies of real payloads and
+records what it was asked, so a test can show that a field nobody wanted cost nothing.
 
 ### Installing git-secrets
 
