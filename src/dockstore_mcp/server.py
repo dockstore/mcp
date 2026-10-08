@@ -21,7 +21,6 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from dockstore_mcp import __version__
 from dockstore_mcp.api import DockstoreApi
 from dockstore_mcp.config import Settings, get_settings
 from dockstore_mcp.tools import register_all
@@ -60,7 +59,7 @@ def create_server(settings: Settings | None = None, api: DockstoreApi | None = N
 
     mcp: FastMCP = FastMCP(
         name="dockstore",
-        version=__version__,
+        version=settings.server_version,
         instructions=INSTRUCTIONS,
         website_url=settings.dockstore_url,
         lifespan=lifespan,
@@ -69,7 +68,7 @@ def create_server(settings: Settings | None = None, api: DockstoreApi | None = N
     @mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
     async def health(_request: Request) -> JSONResponse:
         """Liveness probe for the container and any load balancer in front of it."""
-        return JSONResponse({"status": "ok", "version": __version__})
+        return JSONResponse({"status": "ok", "version": settings.server_version})
 
     register_all(mcp, settings, api)
     logger.debug("Server built against Dockstore instance %s", settings.dockstore_url)

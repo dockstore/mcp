@@ -13,7 +13,9 @@ MCP, so it is deployed alongside the Dockstore webservice rather than inside it.
 
 It is built on [FastMCP](https://gofastmcp.com) 4 and ships as a container image.
 
-> **Status: early.** `hello`, `search_entries`, `get_entry`, `get_version`, and `get_file` work.
+> **Status: early.** All of the tools work: the GA4GH TRS tools (`get_trs_info` through
+> `get_tool_descriptor_by_path`) and the four Dockstore tools (`search_entries`, `get_entry`,
+> `get_version`, and `get_file`).
 
 ## Requirements
 
@@ -113,23 +115,36 @@ over the environment.
 | `DOCKSTORE_MCP_PATH`          | `--path`          | `/mcp`                  | Path the MCP endpoint is served from             |
 | `DOCKSTORE_MCP_LOG_LEVEL`     | `--log-level`     | `INFO`                  | Logging verbosity                                |
 | `DOCKSTORE_MCP_DOCKSTORE_URL` | `--dockstore-url` | `https://dockstore.org` | Dockstore instance whose APIs are exposed        |
+| `DOCKSTORE_MCP_GIT_REF`       |                   | package version         | Version in the `dockstore-mcp/<ref>` User-Agent  |
 
 The container image overrides the first four so that it listens on `0.0.0.0:8000` out of
-the box. It also sets a few `FASTMCP_*` variables so that a deployed server logs plainly
-and does not check PyPI for updates on startup; see the
-[FastMCP settings](https://gofastmcp.com) for the full list.
+the box, and sets `DOCKSTORE_MCP_GIT_REF` from its `GIT_REF` build argument, which the
+release workflow and `make docker-build` fill in with the git tag or ref being built. It
+also sets a few `FASTMCP_*` variables so that a deployed server logs plainly and does not
+check PyPI for updates on startup; see the [FastMCP settings](https://gofastmcp.com) for
+the full list.
 
 ## Tools
 
-| Tool             | Description                                                                      |
-| ---------------- | -------------------------------------------------------------------------------- |
-| `hello`          | Greets the caller and reports the Dockstore instance and server version. No I/O.  |
-| `search_entries` | Searches entries by keyword and facet, the equivalent of the site's Search page.  |
-| `get_entry`      | Retrieves one entry, with its versions and description limited by default.       |
-| `get_version`    | Retrieves one version of an entry, with its file paths limited by default.        |
-| `get_file`       | Retrieves one file belonging to a version, with its content limited by default.   |
+| Tool                          | Implemented | Description                                                                          |
+| ----------------------------- | ----------- | ------------------------------------------------------------------------------------ |
+| `get_trs_info`                | ✅          | Reports instance and version; unless `local_only`, also TRS info and tool classes.   |
+| `list_tools`                  | ✅          | Lists one page of TRS tools, optionally filtered by name, class, language, etc.      |
+| `get_tool`                    | ✅          | Retrieves one TRS tool by id, with a page of its versions in full or summarized.     |
+| `get_tool_version`            | ✅          | Retrieves one version of a TRS tool: authors, images, languages, optionally files.   |
+| `get_tool_descriptor_by_path` | ✅          | Fetches a version's primary descriptor, or any file get_tool_version lists, by path. |
+| `search_entries`              | ✅          | Searches entries by keyword and facet, the equivalent of the site's Search page.     |
+| `get_entry`                   | ✅          | Retrieves one entry, with its versions and description limited by default.          |
+| `get_version`                 | ✅          | Retrieves one version of an entry, with its file paths limited by default.           |
+| `get_file`                    | ✅          | Retrieves one file belonging to a version, with its content limited by default.      |
 
-The four form a chain: `search_entries` yields entry identifiers, an entry yields
+The TRS tools, from `get_trs_info` to `get_tool_descriptor_by_path`, call Dockstore's GA4GH
+TRS V2 API directly. They form a chain: `list_tools` yields tool ids, a
+tool yields version names, and `get_tool_version` with `files` yields the paths that
+`get_tool_descriptor_by_path` takes. Pass `summary` to `list_tools` to get
+each tool's id, languages, and version names without its full README and version details.
+
+The other four are a chain too: `search_entries` yields entry identifiers, an entry yields
 its versions, and a version yields file paths. `get_entry` returns at most
 `version_limit` versions (20 by default), in the order Dockstore ranks them (the default
 version first), and at most `description_limit` characters of the description (5,000 by
@@ -185,14 +200,15 @@ That endpoint serves any of a version's files, not only descriptors.
 src/dockstore_mcp/
 ├── __main__.py      command line entry point (`dockstore-mcp`)
 ├── api.py           HTTP client for the Dockstore webservice
+├── casing.py        camelCase JSON -> snake_case models, for API-backed tools
 ├── config.py        settings, read from the environment
 ├── models.py        entry, version, and file types shared by the tools
 ├── server.py        server construction, /health route
 └── tools/
     ├── __init__.py  registers every tool group
     ├── entries.py   get_entry, get_version, get_file
-    ├── hello.py     the hello tool
-    └── search.py    search_entries
+    ├── search.py    search_entries
+    └── trs.py       get_trs_info and the other GA4GH TRS tools
 tests/               pytest suite, using FastMCP's in-memory client
 Dockerfile           two-stage build of the deployable image
 ```

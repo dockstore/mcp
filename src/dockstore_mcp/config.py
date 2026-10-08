@@ -25,6 +25,8 @@ from urllib.parse import urlparse
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from dockstore_mcp import __version__
+
 Transport = Literal["stdio", "http"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -51,6 +53,14 @@ class Settings(BaseSettings):
     dockstore_url: str = Field(
         default="https://dockstore.org",
         description="Base URL of the Dockstore instance whose APIs this server exposes.",
+    )
+
+    git_ref: str | None = Field(
+        default=None,
+        description=(
+            "Git tag or ref this server was built from, e.g. '1.21.0'; set at build time. "
+            "Falls back to the package version."
+        ),
     )
 
     @field_validator("dockstore_url")
@@ -85,6 +95,16 @@ class Settings(BaseSettings):
     def api_url(self) -> str:
         """Base URL of the instance's proprietary Dockstore API."""
         return self._api_root
+
+    @property
+    def server_version(self) -> str:
+        """Version this server reports: the git ref it was built from, else the package version."""
+        return self.git_ref or __version__
+
+    @property
+    def user_agent(self) -> str:
+        """User-Agent sent with every request to Dockstore, e.g. 'dockstore-mcp/1.21.0'."""
+        return f"dockstore-mcp/{self.server_version}"
 
 
 @lru_cache(maxsize=1)

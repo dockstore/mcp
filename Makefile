@@ -1,9 +1,11 @@
-.PHONY: help install git-hooks test lint format typecheck check run run-http docker-build docker-run clean
+.PHONY: help install git-hooks test smoke lint format typecheck check run run-http docker-build docker-run clean
 
 VENV ?= .venv
 PY   ?= $(VENV)/bin/python
 PIP  ?= $(VENV)/bin/pip
 IMAGE ?= dockstore/dockstore-mcp:local
+# Reported in the User-Agent the server sends to Dockstore.
+GIT_REF ?= $(shell git describe --tags --always 2>/dev/null)
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -21,6 +23,9 @@ git-hooks: ## Register the git-secrets hooks (requires git-secrets)
 test: ## Run the test suite
 	$(VENV)/bin/pytest
 
+smoke: ## Run the read-only smoke tests against the live Dockstore (set SMOKE_DOCKSTORE_URL to change it)
+	$(VENV)/bin/pytest tests/live -m live
+
 lint: ## Check formatting and lint rules
 	$(VENV)/bin/ruff check .
 	$(VENV)/bin/ruff format --check .
@@ -35,13 +40,13 @@ typecheck: ## Run the type checker
 check: lint typecheck test ## Everything CI runs
 
 run: ## Run the server over stdio
-	$(VENV)/bin/dockstore-mcp
+	DOCKSTORE_MCP_GIT_REF=$(GIT_REF) $(VENV)/bin/dockstore-mcp
 
 run-http: ## Run the server over HTTP on port 8000
-	$(VENV)/bin/dockstore-mcp --transport http --port 8000
+	DOCKSTORE_MCP_GIT_REF=$(GIT_REF) $(VENV)/bin/dockstore-mcp --transport http --port 8000
 
 docker-build: ## Build the container image
-	docker build -t $(IMAGE) .
+	docker build --build-arg GIT_REF=$(GIT_REF) -t $(IMAGE) .
 
 docker-run: ## Run the container image on port 8000
 	docker run --rm -p 8000:8000 $(IMAGE)

@@ -22,13 +22,13 @@ from fastmcp import FastMCP
 
 from dockstore_mcp.api import DockstoreApi
 from dockstore_mcp.config import Settings
-from dockstore_mcp.tools import entries, hello, search
+from dockstore_mcp.tools import entries, search, trs
 
 __all__ = ["register_all"]
 
 
 def register_all(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
     """Register every tool this server provides."""
-    hello.register(mcp, settings, api)
     search.register(mcp, settings, api)
     entries.register(mcp, settings, api)
+    trs.register(mcp, settings)

@@ -1,21 +1,21 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  # Pushes to develop and tags run this through deploy_tagged.yml, which only publishes an image once it passes
+  workflow_call:
 
 jobs:
   test:
     name: Test (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -30,11 +30,32 @@ jobs:
       - name: Type check
         run: mypy
       - name: Test
+        if: matrix.python-version != '3.14'
         run: pytest
+      # Coverage is only measured on the newest Python, to avoid uploading the same report four times
+      - name: Test with coverage
+        if: matrix.python-version == '3.14'
+        run: pytest --cov=dockstore_mcp --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.14'
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+      # Test analytics; runs even when tests fail so failures are reported
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && matrix.python-version == '3.14' }}
+        uses: codecov/codecov-action@v5
+        with:
+          files: junit.xml
+          report_type: test_results
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   git-secrets:
     name: git-secrets scan
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - name: Install git-secrets
@@ -51,7 +72,7 @@ jobs:
 
   docker:
     name: Build image
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - name: Build

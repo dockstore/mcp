@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
     "fastmcp>=4.0.3,<5",
-    "httpx2>=2.13",
+    "httpx2>=2.13,<3",
     "pydantic-settings>=2.7",
     # cryptography (pulled in via fastmcp -> authlib) ships arm64-only macOS wheels
     # from 49.0.0 on. Without this pin, Intel macs fall back to the sdist and need a
@@ -32,6 +32,7 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
+    "pytest-cov>=6.0",
     "ruff>=0.9",
     "mypy>=1.14",
 ]
@@ -50,7 +51,8 @@ packages = ["src/dockstore_mcp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-ra"
+addopts = "-ra -m 'not live'"
+markers = ["live: talks to a real Dockstore over the network; run with `make smoke`"]
 
 [tool.ruff]
 line-length = 120
