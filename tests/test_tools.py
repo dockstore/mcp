@@ -211,8 +211,10 @@ async def test_get_entry_returns_every_field(client: Client[Any], dockstore: Fak
     ]
     assert entry.operations == ["Variant calling"]
     assert dockstore.paths() == [
-        "/api/workflows/path/workflow/"
-        "github.com%2Fiwc-workflows%2Fsars-cov-2-variant-calling%2FCOVID-19-ARTIC-ILLUMINA/published",
+        (
+            "/api/workflows/path/workflow/"
+            + "github.com%2Fiwc-workflows%2Fsars-cov-2-variant-calling%2FCOVID-19-ARTIC-ILLUMINA/published"
+        ),
         "/api/workflows/published/16247/workflowVersions",
         "/api/entries/16247/categories",
     ]
