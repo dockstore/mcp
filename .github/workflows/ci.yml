@@ -38,7 +38,7 @@ jobs:
         run: pytest --cov=dockstore_mcp --cov-report=xml --junitxml=junit.xml -o junit_family=legacy
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.14'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
       # Test analytics; runs even when tests fail so failures are reported
       - name: Upload test results to Codecov
         if: ${{ !cancelled() && matrix.python-version == '3.14' }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: junit.xml
           report_type: test_results
