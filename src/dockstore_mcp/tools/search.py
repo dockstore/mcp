@@ -117,7 +117,12 @@ _SOURCE_FIELDS = [
     "dbUpdateDate",
 ]
 
-#: Painless that scores an entry by the square of its match score times the log of 1.05 plus its relevance.
+#: Painless that scores an entry by combining the ES-calculated ``_score`` with the webservice-calculated
+#: ``relevance``.  The term ``Math.log(1.05 + relevance)`` increases with relevance without being overwhelming for
+#: very high relevance values, and is about 0.05 for entries with zero relevance, so entries with very low relevance
+#: (for example, because they haven't been updated in a long time) can still compete if they have a very high ES
+#: ``_score``.  The definition of ``relevance`` is currently somewhat ad hoc and may change:
+#: https://ucsc-cgl.atlassian.net/browse/SEAB-7783
 _RELEVANCE_SCRIPT = (
     "double relevance = doc.containsKey('relevance') && !doc['relevance'].empty"
     " ? doc['relevance'].value : params.missing;"
