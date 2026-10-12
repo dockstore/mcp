@@ -16,6 +16,13 @@
 The search runs against the Elasticsearch index behind that page, through the
 TRS extension that passes a query through to it verbatim.  The index holds one
 document per published tool, workflow, and notebook; services are not indexed.
+
+When the webservice gains a new kind of category, map its index field to a new
+:class:`EntrySummary` field in ``_FACET_FIELDS``, add that field to
+``EntrySummary`` and ``Entry``, and add the category's name prefix to
+``_CATEGORY_FACETS`` in ``entries.py`` so ``get_entry`` reports it too.  The
+mapping also makes the new field searchable, with the same boosts as the other
+categories, so check those against the Search page's.
 """
 
 import json
