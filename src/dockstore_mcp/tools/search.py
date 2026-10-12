@@ -81,7 +81,8 @@ _FACET_FIELDS = {
 
 #: Where ``query`` looks, and how much a match in each place counts for.  The
 #: weights are the Search page's, so results come back in the order a person
-#: searching the site would see them.
+#: searching the site would see them.  These boosts are probably similar to those
+#: in the ``QueryBuilderService`` class of the ui2 repository's search code.
 _QUERY_FIELDS = [
     "description^2",
     "labels^2",
@@ -95,7 +96,9 @@ _QUERY_FIELDS = [
 #: Path fields, which a keyword can match any part of.
 _PATH_FIELDS = ("full_workflow_path", "tool_path")
 
-#: How much a keyword found in an entry's path counts for.
+#: How much a keyword found in an entry's path counts for.  This boost is probably
+#: similar to those in the ``QueryBuilderService`` class of the ui2 repository's
+#: search code.
 _PATH_BOOST = 14
 
 #: The fields of each hit that an :class:`EntrySummary` is built from.
