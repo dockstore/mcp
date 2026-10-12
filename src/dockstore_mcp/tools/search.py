@@ -52,6 +52,7 @@ _SORT_FIELDS = {
     SortBy.NAME: ("normalizedName", "keyword"),
     SortBy.STARS: ("stars_count", "long"),
     SortBy.UPDATED: ("last_modified_date", "date"),
+    SortBy.USED: ("executionCount", "long"),
 }
 
 #: The direction each way of sorting runs in when the caller does not say.
@@ -60,6 +61,7 @@ _NATURAL_ORDER = {
     SortBy.NAME: SortOrder.ASCENDING,
     SortBy.STARS: SortOrder.DESCENDING,
     SortBy.UPDATED: SortOrder.DESCENDING,
+    SortBy.USED: SortOrder.DESCENDING,
 }
 
 #: The most keywords of a query that are looked for in paths, as on the Search page.
@@ -201,6 +203,8 @@ def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
             sort_by: What to order the results by. Defaults to relevance: how well an
                 entry matches ``query``, weighted by how relevant Dockstore considers it,
                 or, with no ``query``, how relevant Dockstore considers it alone.
+                ``used`` puts the most used entries first, by how many times
+                Dockstore has recorded them being run on its execution platforms.
             sort_order: Which direction to order the results in. Defaults to
                 alphabetical for ``name`` and largest or newest first for the rest.
             limit: How many entries to return, at most 200.

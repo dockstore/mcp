@@ -883,6 +883,10 @@ async def test_search_reports_a_dockstore_without_search(client: Client[Any], do
             {"sort_by": "updated", "sort_order": "asc"},
             {"last_modified_date": {"order": "asc", "missing": "_last", "unmapped_type": "date"}},
         ),
+        (
+            {"sort_by": "used"},
+            {"executionCount": {"order": "desc", "missing": "_last", "unmapped_type": "long"}},
+        ),
     ],
 )
 async def test_search_sorts_by_a_field(

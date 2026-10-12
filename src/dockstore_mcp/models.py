@@ -103,6 +103,7 @@ class SortBy(StrEnum):
     NAME = "name"
     STARS = "stars"
     UPDATED = "updated"
+    USED = "used"
 
 
 class SortOrder(StrEnum):
