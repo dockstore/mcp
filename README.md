@@ -227,6 +227,29 @@ returns and when to reach for it. Note that FastMCP can also generate tools dire
 from an OpenAPI specification (`FastMCP.from_openapi`), which may be the right way to
 cover large parts of the Dockstore API.
 
+### Keeping in step with the webservice and UI2
+
+This server is a client of the
+[webservice](https://github.com/dockstore/dockstore). The tools call its REST and TRS
+endpoints and read their JSON, and `search_entries` sends queries to the Elasticsearch
+index that the webservice builds. `search_entries` also reproduces the Search page of
+[UI2](https://github.com/dockstore/dockstore-ui2): its field boosts and path matching
+follow UI2's `QueryBuilderService`, and its relevance scoring is meant to match UI2's, so
+results come back in the order the site shows them.
+
+When either repository changes something these tools depend on, update this one to
+match:
+
+- **Webservice payloads or endpoints**: update the affected tool and its model in
+  `models.py`, and refresh the trimmed payloads in `tests/fake_dockstore.py`. The daily
+  smoke tests (`make smoke`) run against dockstore.org and catch drift that the fake
+  can't.
+- **Index fields or categories**: update the field lists at the top of
+  `tools/search.py`. The `search` module's docstring explains how to add a new kind of
+  category.
+- **UI2's search boosts or scoring**: carry the change over to `_QUERY_FIELDS`,
+  `_PATH_BOOST`, or `_RELEVANCE_SCRIPT` in `tools/search.py`.
+
 ## Development
 
 ```bash

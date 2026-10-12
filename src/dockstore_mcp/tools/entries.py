@@ -113,7 +113,8 @@ _TRS_TYPED_FILE_TYPES = {"PRIMARY_DESCRIPTOR", "SECONDARY_DESCRIPTOR", "TEST_FIL
 
 #: Dockstore files an entry under automatic categories whose names say which
 #: facet they belong to, so one request for categories answers six of the
-#: fields above; anything else is a category a person curated.
+#: fields above; anything else is a category a person curated.  See the
+#: :mod:`~dockstore_mcp.tools.search` docstring for adding a new kind of category.
 _CATEGORY_FACETS = {
     "subject_areas": ("topic-",),
     "operations": ("operation-",),
