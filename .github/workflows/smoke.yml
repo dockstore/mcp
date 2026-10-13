@@ -36,7 +36,7 @@ jobs:
       # Test analytics only (no coverage); runs even when tests fail so failures are reported
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: smoke.xml
           report_type: test_results
