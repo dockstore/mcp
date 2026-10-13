@@ -13,21 +13,22 @@
 #    limitations under the License.
 """Tool registration.
 
-Each module in this package exposes a ``register(mcp, settings)`` function that
-adds one cohesive group of tools to the server.  Add new modules here as the
+Each module in this package exposes a ``register(mcp, settings, api)`` function
+that adds one cohesive group of tools to the server.  Add new modules here as the
 Dockstore surface area grows (TRS lookups, workflow search, and so on).
 """
 
 from fastmcp import FastMCP
 
+from dockstore_mcp.api import DockstoreApi
 from dockstore_mcp.config import Settings
 from dockstore_mcp.tools import entries, search, trs
 
 __all__ = ["register_all"]
 
 
-def register_all(mcp: FastMCP, settings: Settings) -> None:
+def register_all(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
     """Register every tool this server provides."""
-    search.register(mcp, settings)
-    entries.register(mcp, settings)
+    search.register(mcp, settings, api)
+    entries.register(mcp, settings, api)
     trs.register(mcp, settings)

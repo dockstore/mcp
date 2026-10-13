@@ -78,6 +78,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             port=settings.port,
             path=settings.path,
             log_level=settings.log_level,
+            # No tool needs a session, and without one any replica can answer any request.
+            stateless_http=True,
         )
     return 0
 

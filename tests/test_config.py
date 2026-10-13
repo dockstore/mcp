@@ -42,6 +42,12 @@ def test_derived_api_urls() -> None:
     assert settings.api_url == "https://qa.dockstore.org/api"
 
 
+def test_derived_api_urls_omit_prefix_on_localhost() -> None:
+    settings = Settings(dockstore_url="http://localhost:8080/")
+    assert settings.trs_url == "http://localhost:8080/ga4gh/trs/v2"
+    assert settings.api_url == "http://localhost:8080"
+
+
 def test_version_reports_the_git_ref(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DOCKSTORE_MCP_GIT_REF", "1.21.0")
     settings = Settings()

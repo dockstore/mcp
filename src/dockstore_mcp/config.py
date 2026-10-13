@@ -20,6 +20,7 @@ Every setting can be supplied as an environment variable prefixed with
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -75,14 +76,25 @@ class Settings(BaseSettings):
         return value.rstrip("/") or "/"
 
     @property
+    def _api_root(self) -> str:
+        """Root of the instance's APIs.
+
+        Deployed instances serve the webservice under ``/api`` behind a proxy, whereas a
+        webservice running on localhost is typically reached directly, without the prefix.
+        """
+        if urlparse(self.dockstore_url).hostname == "localhost":
+            return self.dockstore_url
+        return f"{self.dockstore_url}/api"
+
+    @property
     def trs_url(self) -> str:
         """Base URL of the instance's GA4GH Tool Registry Service API."""
-        return f"{self.dockstore_url}/api/ga4gh/trs/v2"
+        return f"{self._api_root}/ga4gh/trs/v2"
 
     @property
     def api_url(self) -> str:
         """Base URL of the instance's proprietary Dockstore API."""
-        return f"{self.dockstore_url}/api"
+        return self._api_root
 
     @property
     def server_version(self) -> str:

@@ -9,10 +9,8 @@ An MCP (Model Context Protocol) server, built on FastMCP 4, that exposes Docksto
 assistants. It is a standalone process deployed alongside the Dockstore webservice,
 talking to Dockstore's GA4GH Tool Registry Service (TRS) API and its own proprietary API.
 
-**Status: prototype without search.** The GA4GH TRS tools in `trs.py` have working bodies. The four Dockstore
-tools (`search_entries`, `get_entry`, `get_version`, `get_file`) are fully declared
-(names, arguments, response models, docstrings) but each raises `NotImplementedError`
-until wired up to the real Dockstore API.
+**Status: early.** Every tool works: the GA4GH TRS tools in `trs.py` and the four Dockstore tools
+(`search_entries`, `get_entry`, `get_version`, `get_file`) in `search.py` and `entries.py`.
 
 ## Commands
 
@@ -38,7 +36,9 @@ Run a single test with pytest directly (no Makefile target for this):
 ```
 
 Tests use FastMCP's in-memory `Client`/`FastMCP` pairing (see `tests/conftest.py`), so
-they exercise real tool dispatch without a socket or subprocess.
+they exercise real tool dispatch without a socket or subprocess. The Dockstore tools' `DockstoreApi`
+is backed by `tests/fake_dockstore.py`'s `FakeDockstore`, which serves trimmed copies of real
+dockstore.org payloads.
 
 ## Pull requests
 
@@ -82,34 +82,43 @@ back from the installed package's metadata at runtime (`importlib.metadata.versi
 
 ## Architecture
 
-- `src/dockstore_mcp/server.py` — `create_server(settings)` builds the `FastMCP`
-  instance, adds the `/health` route, and calls `register_all`. There's also a
+- `src/dockstore_mcp/server.py` — `create_server(settings, api)` builds the `FastMCP`
+  instance and the shared `DockstoreApi` client (closed on shutdown), adds the `/health`
+  route, and calls `register_all`. There's also a
   module-level `mcp` instance for `fastmcp run dockstore_mcp.server:mcp`.
 - `src/dockstore_mcp/config.py` — `Settings` (pydantic-settings), env-prefixed
   `DOCKSTORE_MCP_*`, also readable from `.env`. CLI flags (parsed in `__main__.py`)
   override the environment. Derives `trs_url` and `api_url` from `dockstore_url`.
+- `src/dockstore_mcp/api.py` — `DockstoreApi`, the one HTTP client per server that the
+  Dockstore tools reach the webservice through, so calls reuse its connection pool. It
+  speaks JSON only; turning payloads into models is each tool's job.
+- `src/dockstore_mcp/casing.py` — `normalize_keys`/`camel_to_snake`, for turning Dockstore's
+  camelCase JSON into the snake_case models.
 - `src/dockstore_mcp/models.py` — Pydantic models/enums shared by the tools (`Entry`,
-  `Version`, `File`, and per-model `*Field` StrEnums used to let callers select which
-  fields to get back). Every field on `Entry`/`Version`/`File` is optional by design:
-  a response only populates the fields the caller asked for. `test_tools.py`'s
-  `test_selectable_fields_match_their_model` enforces that each `*Field` enum's
-  members exactly match its model's fields — keep them in sync when editing either.
+  `Version`, `File` and their `*Summary` forms, plus the TRS models). Every field on
+  `Entry`/`Version`/`File` is optional, since Dockstore doesn't fill in every one for
+  every kind of entry.
 - `src/dockstore_mcp/tools/` — one module per cohesive tool group, each exposing
-  `register(mcp: FastMCP, settings: Settings) -> None`. `tools/__init__.py`'s
-  `register_all` calls each in turn; new tool modules must be added there.
+  a `register` function. The Dockstore tool modules take
+  `register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None`; `trs.py` makes
+  its own requests and takes only `(mcp, settings)`. `tools/__init__.py`'s
+  `register_all(mcp, settings, api)` calls each in turn; new tool modules must be added there.
   - `trs.py` — the GA4GH TRS tools, implemented. `get_trs_info(local_only=True)` doubles as a
     smoke test that never contacts Dockstore.
   - `search.py` — `search_entries`, the Dockstore Search page equivalent.
   - `entries.py` — `get_entry` → `get_version` → `get_file`, a lookup chain: an
-    entry's `version_ids` feed `get_version`, whose `file_paths` feed `get_file`.
+    entry's `versions` give the ids `get_version` takes, whose `files` give the paths
+    `get_file` takes. Each limits what it returns by default (`version_limit`,
+    `description_limit`, `file_limit`, `content_limit`); null returns everything.
 - `src/dockstore_mcp/__main__.py` — CLI entry point (`dockstore-mcp`); layers argparse
   flags over env-derived `Settings`, then runs the server over stdio or HTTP.
 
 ### Adding a tool
 
-Add a module under `src/dockstore_mcp/tools/` exposing `register(mcp, settings)`,
+Add a module under `src/dockstore_mcp/tools/` exposing `register(mcp, settings, api)`,
 and call it from `register_all` in `tools/__init__.py`. Group related tools in one
-module. Write tool docstrings for the model that will read them (what it returns,
+module, and reach Dockstore through the shared `api` client rather than opening a
+connection of your own. Write tool docstrings for the model that will read them (what it returns,
 when to reach for it), not for a human API reference. FastMCP can also generate
 tools directly from an OpenAPI spec (`FastMCP.from_openapi`), which may be the right
 way to cover large parts of the Dockstore API instead of hand-writing tools.
