@@ -16,8 +16,10 @@ concurrency:
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
-    # Reusable workflows don't receive the caller's secrets by default; ci.yml needs CODECOV_TOKEN
-    secrets: inherit
+    # A reusable workflow can't get more permissions than its caller grants; ci.yml needs id-token for Codecov OIDC
+    permissions:
+      contents: read
+      id-token: write
 
   build:
     needs: ci
