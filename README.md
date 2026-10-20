@@ -159,7 +159,7 @@ site's Search page. Keywords are ranked with the Search page's weights. The entr
 type, descriptor language, author, and EDAM facets (subject area, operation, and
 input and output data and formats) are filters. Keywords, author, and EDAM facets are
 written in Lucene query syntax and sent as `query_string` queries. Results can be sorted by relevance
-(with keywords, the square of the Elasticsearch score times the natural log of 1.05 plus the entry's
+(with keywords, the square of the Elasticsearch score times 0.2 plus the entry's
 indexed `relevance`),
 name, stars, last update, or execution count (the Search page's "Most Used"), and a call returns up to 200 of them (20 by default)
 along with the total number that matched. Each result carries the entry's categories and
