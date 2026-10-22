@@ -128,15 +128,17 @@ _SOURCE_FIELDS = [
 ]
 
 #: Painless that scores an entry by combining the ES-calculated ``_score`` with the webservice-calculated
-#: ``relevance``.  The term ``Math.log(1.05 + relevance)`` increases with relevance without being overwhelming for
-#: very high relevance values, and is about 0.05 for entries with zero relevance, so entries with very low relevance
-#: (for example, because they haven't been updated in a long time) can still compete if they have a very high ES
-#: ``_score``.  A similar formula is probably present in the ui2 repository.  The definition of ``relevance`` is
-#: currently somewhat ad hoc and may change: https://ucsc-cgl.atlassian.net/browse/SEAB-7783
+#: ``relevance``.  Squaring the score amplifies differences in how well entries match, so that match quality tends to
+#: outweigh relevance, although both still contribute.  The term ``0.2 + relevance`` increases linearly with relevance,
+#: and is about 0.2 for entries with zero or missing relevance, so entries with very low relevance (for example, because
+#: they haven't been updated in a long time) can still compete if they have a very high ES ``_score``.  This should be
+#: the same formula as ``RELEVANCE_SCRIPT`` in the ``QueryBuilderService`` class of the ui2 repository's search code, so
+#: keep the two in sync.  The definition of ``relevance`` is currently somewhat ad hoc and may change:
+#: https://ucsc-cgl.atlassian.net/browse/SEAB-7783
 _RELEVANCE_SCRIPT = (
     "double relevance = doc.containsKey('relevance') && !doc['relevance'].empty"
     " ? doc['relevance'].value : params.missing;"
-    " return _score * _score * Math.log(1.05 + relevance);"
+    " return _score * _score * (0.2 + relevance);"
 )
 
 #: The relevance an entry without one is scored with.
@@ -392,9 +394,9 @@ def _anywhere(text: str, terms: list[str]) -> dict[str, Any]:
 
 def _weigh_by_relevance(query: dict[str, Any]) -> dict[str, Any]:
     """Weigh the square of how well an entry matches ``query`` by how relevant Dockstore considers it overall."""
-    # Squaring the score and taking the log of the relevance let how well an entry
-    # matches outweigh how relevant it is, without discarding either, and the 1.05
-    # keeps an entry with little or no relevance from being buried entirely.
+    # Squaring the score lets how well an entry matches outweigh how relevant it is,
+    # without discarding either, and adding 0.2 to the relevance keeps an entry with
+    # little or no relevance from being buried entirely.
     return {
         "script_score": {
             "query": query,

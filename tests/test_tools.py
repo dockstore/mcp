@@ -782,7 +782,7 @@ async def test_search_weighs_keyword_matches_by_relevance(client: Client[Any], d
     _, body = await _search(client, dockstore, query="covid")
     [scored] = body["query"]["bool"]["must"]
     script = scored["script_score"]["script"]
-    assert "_score * _score * Math.log(1.05 + relevance)" in script["source"]
+    assert "_score * _score * (0.2 + relevance)" in script["source"]
     assert script["params"] == {"missing": 1e-9}
 
 
