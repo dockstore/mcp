@@ -147,7 +147,9 @@ def register(mcp: FastMCP, settings: Settings) -> None:
     # Shared for every call this server handles, so the tools below don't pay a
     # fresh TCP/TLS handshake to Dockstore on every invocation. Reuse this same
     # client as more TRS-backed tools join this module.
-    client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT, headers={"User-Agent": settings.user_agent})
+    client = httpx.AsyncClient(
+        timeout=REQUEST_TIMEOUT, headers={"User-Agent": settings.user_agent, **settings.internal_token_headers}
+    )
 
     async def get(path: str, params: dict[str, Any] | None = None) -> httpx.Response:
         """GET ``path`` under the TRS API root, raising on an error status."""

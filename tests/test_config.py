@@ -17,7 +17,7 @@ import pytest
 from pydantic import ValidationError
 
 from dockstore_mcp import __version__
-from dockstore_mcp.config import Settings
+from dockstore_mcp.config import INTERNAL_TOKEN_HEADER, Settings
 
 
 def test_defaults() -> None:
@@ -67,3 +67,19 @@ def test_version_falls_back_to_the_package_version(monkeypatch: pytest.MonkeyPat
 def test_rejects_bad_values(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
         Settings(**{field: value})  # type: ignore[arg-type]
+
+
+def test_internal_token_is_sent_as_a_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DOCKSTORE_MCP_INTERNAL_TOKEN", "s3cret")
+    settings = Settings()
+    assert settings.internal_token_headers == {INTERNAL_TOKEN_HEADER: "s3cret"}
+    assert "s3cret" not in repr(settings)
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_no_internal_token_sends_no_header(monkeypatch: pytest.MonkeyPatch, value: str | None) -> None:
+    if value is not None:
+        monkeypatch.setenv("DOCKSTORE_MCP_INTERNAL_TOKEN", value)
+    settings = Settings()
+    assert settings.internal_token is None
+    assert settings.internal_token_headers == {}

@@ -68,6 +68,7 @@ class DockstoreApi:
                 tests pass a stub.
         """
         self._base_url = settings.api_url
+        self._internal_token_headers = settings.internal_token_headers
         self._transport = transport
         self._client: httpx2.AsyncClient | None = None
 
@@ -136,7 +137,7 @@ class DockstoreApi:
             self._client = httpx2.AsyncClient(
                 base_url=self._base_url,
                 timeout=DEFAULT_TIMEOUT,
-                headers={"User-Agent": f"dockstore-mcp/{__version__}"},
+                headers={"User-Agent": f"dockstore-mcp/{__version__}", **self._internal_token_headers},
                 transport=self._transport,
             )
         return self._client

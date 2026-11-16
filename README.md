@@ -116,6 +116,7 @@ over the environment.
 | `DOCKSTORE_MCP_LOG_LEVEL`     | `--log-level`     | `INFO`                  | Logging verbosity                                |
 | `DOCKSTORE_MCP_DOCKSTORE_URL` | `--dockstore-url` | `https://dockstore.org` | Dockstore instance whose APIs are exposed        |
 | `DOCKSTORE_MCP_GIT_REF`       |                   | package version         | Version in the `dockstore-mcp/<ref>` User-Agent  |
+| `DOCKSTORE_MCP_INTERNAL_TOKEN` |                  | unset                   | Key sent in the `x-dockstore-internal` header    |
 
 The container image overrides the first four so that it listens on `0.0.0.0:8000` out of
 the box, and sets `DOCKSTORE_MCP_GIT_REF` from its `GIT_REF` build argument, which the

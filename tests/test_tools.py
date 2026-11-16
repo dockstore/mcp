@@ -25,7 +25,10 @@ from unittest.mock import ANY
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from pydantic import SecretStr
 
+from dockstore_mcp.api import DockstoreApi
+from dockstore_mcp.config import INTERNAL_TOKEN_HEADER, Settings
 from dockstore_mcp.models import (
     DescriptorLanguage,
     Entry,
@@ -34,6 +37,7 @@ from dockstore_mcp.models import (
     ReferenceType,
     Version,
 )
+from dockstore_mcp.server import create_server
 from fake_dockstore import (
     CATEGORIES,
     SEARCH_HITS,
@@ -922,3 +926,18 @@ async def test_search_refuses_an_unreasonable_limit(client: Client[Any], docksto
         with pytest.raises(ToolError):
             await client.call_tool("search_entries", {"limit": limit})
     assert dockstore.requests == []
+
+
+async def test_dockstore_requests_carry_the_token(dockstore: FakeDockstore) -> None:
+    settings = Settings(dockstore_url="https://staging.dockstore.org/", internal_token=SecretStr("s3cret"))
+    await _get_entry(
+        Client(create_server(settings, DockstoreApi(settings, transport=dockstore.transport))), entry_id=WORKFLOW_ID
+    )
+    assert dockstore.requests
+    assert all(request.headers[INTERNAL_TOKEN_HEADER] == "s3cret" for request in dockstore.requests)
+
+
+async def test_dockstore_requests_carry_no_token_by_default(client: Client[Any], dockstore: FakeDockstore) -> None:
+    await _get_entry(client, entry_id=WORKFLOW_ID)
+    assert dockstore.requests
+    assert all(INTERNAL_TOKEN_HEADER not in request.headers for request in dockstore.requests)

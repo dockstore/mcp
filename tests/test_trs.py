@@ -24,8 +24,12 @@ import httpx2 as httpx
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from pydantic import SecretStr
 
 from dockstore_mcp import __version__
+from dockstore_mcp.api import DockstoreApi
+from dockstore_mcp.config import INTERNAL_TOKEN_HEADER, Settings
+from dockstore_mcp.server import create_server
 
 SERVICE_INFO_RESPONSE = {
     "id": "org.dockstore.staging",
@@ -563,3 +567,17 @@ async def test_requests_identify_the_server(client: Client[Any], requests_made: 
     async with client:
         await client.call_tool("get_trs_info", {})
     assert requests_made[0].headers["User-Agent"] == f"dockstore-mcp/{__version__}"
+
+
+async def test_requests_carry_no_token_by_default(client: Client[Any], requests_made: list[httpx.Request]) -> None:
+    async with client:
+        await client.call_tool("get_trs_info", {})
+    assert INTERNAL_TOKEN_HEADER not in requests_made[0].headers
+
+
+async def test_requests_carry_the_token(requests_made: list[httpx.Request]) -> None:
+    settings = Settings(dockstore_url="https://staging.dockstore.org/", internal_token=SecretStr("s3cret"))
+    client: Client[Any] = Client(create_server(settings, DockstoreApi(settings)))
+    async with client:
+        await client.call_tool("get_trs_info", {})
+    assert requests_made[0].headers[INTERNAL_TOKEN_HEADER] == "s3cret"

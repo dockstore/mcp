@@ -22,10 +22,13 @@ from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from dockstore_mcp import __version__
+
+#: Header that carries :attr:`Settings.internal_token` on every request to Dockstore.
+INTERNAL_TOKEN_HEADER = "x-dockstore-internal"
 
 Transport = Literal["stdio", "http"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -62,6 +65,19 @@ class Settings(BaseSettings):
             "Falls back to the package version."
         ),
     )
+
+    internal_token: SecretStr | None = Field(
+        default=None,
+        description=(
+            f"Shared key sent to Dockstore in the {INTERNAL_TOKEN_HEADER} header. A deployed Dockstore's WAF does not "
+            "apply its per-IP rate limit to requests that carry it. Unset or empty, the header is not sent."
+        ),
+    )
+
+    @field_validator("internal_token", mode="before")
+    @classmethod
+    def _empty_internal_token_is_unset(cls, value: object) -> object:
+        return None if value == "" else value
 
     @field_validator("dockstore_url")
     @classmethod
@@ -105,6 +121,13 @@ class Settings(BaseSettings):
     def user_agent(self) -> str:
         """User-Agent sent with every request to Dockstore, e.g. 'dockstore-mcp/1.21.0'."""
         return f"dockstore-mcp/{self.server_version}"
+
+    @property
+    def internal_token_headers(self) -> dict[str, str]:
+        """The header that carries :attr:`internal_token`, or nothing if no key is set."""
+        if self.internal_token is None:
+            return {}
+        return {INTERNAL_TOKEN_HEADER: self.internal_token.get_secret_value()}
 
 
 @lru_cache(maxsize=1)
