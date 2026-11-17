@@ -88,7 +88,8 @@ back from the installed package's metadata at runtime (`importlib.metadata.versi
   module-level `mcp` instance for `fastmcp run dockstore_mcp.server:mcp`.
 - `src/dockstore_mcp/config.py` — `Settings` (pydantic-settings), env-prefixed
   `DOCKSTORE_MCP_*`, also readable from `.env`. CLI flags (parsed in `__main__.py`)
-  override the environment. Derives `trs_url` and `api_url` from `dockstore_url`.
+  override the environment. `api_url` is `dockstore_api_url` if set, else derived from
+  `dockstore_public_url` (which entry links use); `trs_url` builds on `api_url`.
 - `src/dockstore_mcp/api.py` — `DockstoreApi`, the one HTTP client per server that the
   Dockstore tools reach the webservice through, so calls reuse its connection pool. It
   speaks JSON only; turning payloads into models is each tool's job.

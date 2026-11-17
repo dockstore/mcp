@@ -39,7 +39,13 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--host", help="Interface to bind when serving over HTTP.")
     parser.add_argument("--port", type=int, help="Port to bind when serving over HTTP.")
     parser.add_argument("--path", help="HTTP path the MCP endpoint is served from.")
-    parser.add_argument("--dockstore-url", help="Base URL of the Dockstore instance to expose.")
+    parser.add_argument(
+        "--dockstore-public-url", help="Public base URL of the Dockstore instance to expose; entry links point here."
+    )
+    parser.add_argument(
+        "--dockstore-api-url",
+        help="Base URL of the webservice's Dockstore/TRS APIs. Derived from the public URL if unset.",
+    )
     parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],

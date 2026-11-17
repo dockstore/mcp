@@ -1,7 +1,12 @@
 # Runs the Dockstore MCP server on its own. Point it at whichever Dockstore
 # instance you are developing against, for example:
 #
-#   DOCKSTORE_URL=http://host.docker.internal:8080 docker compose up --build
+#   DOCKSTORE_PUBLIC_URL=http://localhost:4200 \
+#   DOCKSTORE_API_URL=http://host.docker.internal:8080 \
+#   docker compose up --build
+#
+# Both are required. DOCKSTORE_PUBLIC_URL is where entry links point;
+# DOCKSTORE_API_URL is where the server reaches the webservice.
 services:
   mcp:
     build: .
@@ -9,6 +14,7 @@ services:
     ports:
       - "${MCP_PORT:-8000}:8000"
     environment:
-      DOCKSTORE_MCP_DOCKSTORE_URL: "${DOCKSTORE_URL:-https://dockstore.org}"
+      DOCKSTORE_MCP_DOCKSTORE_PUBLIC_URL: "${DOCKSTORE_PUBLIC_URL:?set DOCKSTORE_PUBLIC_URL to the Dockstore instance's public URL}"
+      DOCKSTORE_MCP_DOCKSTORE_API_URL: "${DOCKSTORE_API_URL:?set DOCKSTORE_API_URL to the base URL of the webservice's Dockstore/TRS APIs}"
       DOCKSTORE_MCP_LOG_LEVEL: "${LOG_LEVEL:-INFO}"
     restart: unless-stopped

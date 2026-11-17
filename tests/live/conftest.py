@@ -38,5 +38,5 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 @pytest.fixture
 def live_client() -> Client[Any]:
     """A client wired in memory to a server attached to the real Dockstore, with its real HTTP stack."""
-    settings = Settings(dockstore_url=os.environ.get(URL_VARIABLE, DEFAULT_URL), transport="stdio")
+    settings = Settings(dockstore_public_url=os.environ.get(URL_VARIABLE, DEFAULT_URL), transport="stdio")
     return Client(create_server(settings))

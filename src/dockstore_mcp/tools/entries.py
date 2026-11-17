@@ -554,7 +554,7 @@ def _version_url(trs_id: str, name: Any, settings: Settings) -> str | None:
     prefix, path = _split_trs_id(trs_id)
     if not name or prefix not in _SITE_PATHS:
         return None
-    return f"{settings.dockstore_url}/{_SITE_PATHS[prefix]}/{path}:{name}"
+    return f"{settings.dockstore_public_url}/{_SITE_PATHS[prefix]}/{path}:{name}"
 
 
 def _facets(categories: Iterable[Any]) -> dict[str, list[str]]:
@@ -723,4 +723,4 @@ def _url(payload: dict[str, Any], settings: Settings) -> str | None:
     path = _first_of(payload, "full_workflow_path", "tool_path", "path")
     if not site_path or not path:
         return None
-    return f"{settings.dockstore_url}/{site_path}/{path}"
+    return f"{settings.dockstore_public_url}/{site_path}/{path}"

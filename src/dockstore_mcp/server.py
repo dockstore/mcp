@@ -61,7 +61,7 @@ def create_server(settings: Settings | None = None, api: DockstoreApi | None = N
         name="dockstore",
         version=settings.server_version,
         instructions=INSTRUCTIONS,
-        website_url=settings.dockstore_url,
+        website_url=settings.dockstore_public_url,
         lifespan=lifespan,
     )
 
@@ -71,7 +71,9 @@ def create_server(settings: Settings | None = None, api: DockstoreApi | None = N
         return JSONResponse({"status": "ok", "version": settings.server_version})
 
     register_all(mcp, settings, api)
-    logger.debug("Server built against Dockstore instance %s", settings.dockstore_url)
+    logger.debug(
+        "Server built against Dockstore instance %s (API at %s)", settings.dockstore_public_url, settings.api_url
+    )
     return mcp
 
 

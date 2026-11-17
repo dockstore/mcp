@@ -213,7 +213,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         version of the TRS API it implements, and who operates it, and to see which
         tool classes (for example 'Workflow' or 'CommandLineTool') it sorts entries
         into, e.g. before filtering list_tools by one. It always describes the
-        ``dockstore_url`` this server is configured with. Pass ``local_only`` to
+        public Dockstore URL this server is configured with. Pass ``local_only`` to
         confirm the server is reachable and configured without calling Dockstore.
 
         Returns:
@@ -221,7 +221,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             service's identifiers, the TRS API version implemented, the organization
             operating it, and every tool class it recognizes.
         """
-        local = {"dockstore_url": settings.dockstore_url, "server_version": settings.server_version}
+        local = {"dockstore_url": settings.dockstore_public_url, "server_version": settings.server_version}
         if local_only:
             return TrsInfo.model_validate(local)
         service_info, tool_classes = await asyncio.gather(get("/service-info"), get("/toolClasses"))
@@ -327,7 +327,9 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         )
         if "current_limit" not in response.headers:
             # Dockstore before SEAB-7771 ignores limit and offset and returns every version.
-            raise ToolError(f"{settings.dockstore_url} does not page tool versions, so get_tool cannot list them.")
+            raise ToolError(
+                f"{settings.dockstore_public_url} does not page tool versions, so get_tool cannot list them."
+            )
         tool = ToolWithPageOfVersions.model_validate(
             {
                 **data,

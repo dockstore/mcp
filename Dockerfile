@@ -60,7 +60,7 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     DOCKSTORE_MCP_HOST=0.0.0.0 \
     DOCKSTORE_MCP_PORT=8000 \
     DOCKSTORE_MCP_PATH=/mcp \
-    DOCKSTORE_MCP_DOCKSTORE_URL=https://dockstore.org \
+    DOCKSTORE_MCP_DOCKSTORE_PUBLIC_URL=https://dockstore.org \
     DOCKSTORE_MCP_GIT_REF=${GIT_REF}
 
 USER dockstore
