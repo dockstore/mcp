@@ -13,12 +13,18 @@
 #    limitations under the License.
 """HTTP access to the Dockstore webservice.
 
-One :class:`DockstoreApi` is built per server and shared by every tool, so that
-calls reuse connections.  It speaks JSON and nothing else: turning a payload
+One :class:`DockstoreApi` is built per server and shared by every tool.  Each tool
+call gets a connection pool of its own (see :meth:`DockstoreApi.connection`), so a
+call resolves the webservice's name and connects afresh, following DNS changes
+such as a failover, while the requests within it still share connections.  It
+speaks JSON and nothing else: turning a payload
 into one of the models in :mod:`dockstore_mcp.models` is the tool's job.
 """
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from typing import Any
 
 import httpx2
@@ -26,12 +32,23 @@ from fastmcp.exceptions import ToolError
 
 from dockstore_mcp.config import Settings
 
-__all__ = ["DEFAULT_TIMEOUT", "TRS_PATH", "BadRequestError", "DockstoreApi", "DockstoreError", "NotFoundError"]
+__all__ = [
+    "DEFAULT_TIMEOUT",
+    "MAX_CONNECTIONS_PER_CALL",
+    "TRS_PATH",
+    "BadRequestError",
+    "DockstoreApi",
+    "DockstoreError",
+    "NotFoundError",
+]
 
 logger = logging.getLogger(__name__)
 
 #: Seconds to wait on the webservice before giving up on a request.
 DEFAULT_TIMEOUT = 30.0
+
+#: Most connections one tool call's pool opens at once; further requests wait for one to free up.
+MAX_CONNECTIONS_PER_CALL = 4
 
 #: Where the GA4GH Tool Registry Service V2 API lives, relative to the webservice's root.
 TRS_PATH = "/ga4gh/trs/v2"
@@ -57,8 +74,9 @@ class BadRequestError(DockstoreError):
 class DockstoreApi:
     """A client for one Dockstore instance's webservice: both its own API and its TRS API (under :data:`TRS_PATH`).
 
-    The underlying connection pool is opened on the first request and closed by
-    :meth:`aclose`, which the server calls when it shuts down.
+    Connections last no longer than a tool call: the server wraps each call in
+    :meth:`connection`, which opens a pool for the call's requests and closes it
+    afterwards.  A request made outside :meth:`connection` gets a pool of its own.
     """
 
     def __init__(self, settings: Settings, transport: httpx2.AsyncBaseTransport | None = None) -> None:
@@ -66,13 +84,32 @@ class DockstoreApi:
 
         Args:
             settings: Which Dockstore instance to talk to.
-            transport: Transport to send requests over. Defaults to a real one;
-                tests pass a stub.
+            transport: Transport to send requests over, shared by every pool, each
+                of which closes it on exit, so it must survive being closed
+                repeatedly (an ``httpx2.MockTransport`` does). Defaults to a fresh
+                real one per pool; tests pass a stub.
         """
         self._base_url = settings.dockstore_api_url
         self._user_agent = settings.user_agent
         self._transport = transport
-        self._client: httpx2.AsyncClient | None = None
+        self._client: ContextVar[httpx2.AsyncClient | None] = ContextVar("dockstore_api_client", default=None)
+
+    @asynccontextmanager
+    async def connection(self) -> AsyncIterator[None]:
+        """Send the requests made inside this block over a fresh pool, closed when the block exits.
+
+        The pool connects lazily, so a block that makes no request never contacts
+        Dockstore.  Within a block that is already inside one, the outer pool is used.
+        """
+        if self._client.get() is not None:
+            yield
+            return
+        async with self._new_client() as client:
+            token = self._client.set(client)
+            try:
+                yield
+            finally:
+                self._client.reset(token)
 
     async def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
         """GET ``path`` and return the JSON Dockstore answered with, whatever its shape."""
@@ -107,12 +144,6 @@ class DockstoreApi:
             raise DockstoreError(f"Dockstore answered {path} with something other than an object.")
         return payload
 
-    async def aclose(self) -> None:
-        """Close the connection pool, if one was ever opened."""
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
-
     async def _request(
         self, method: str, path: str, params: dict[str, Any] | None, body: dict[str, Any] | None = None
     ) -> tuple[Any, httpx2.Headers]:
@@ -127,7 +158,10 @@ class DockstoreApi:
             BadRequestError: if Dockstore answered 400.
             DockstoreError: if the request failed for any other reason.
         """
-        client = self._open()
+        client = self._client.get()
+        if client is None:
+            async with self.connection():
+                return await self._request(method, path, params, body)
         logger.debug("%s %s%s params=%s", method, self._base_url, path, params)
         try:
             response = await client.request(method, path, params=params, json=body)
@@ -150,12 +184,11 @@ class DockstoreApi:
             logger.warning("Dockstore answered %s%s with a body that is not JSON", self._base_url, path)
             raise DockstoreError("Dockstore answered with a body that is not JSON.") from error
 
-    def _open(self) -> httpx2.AsyncClient:
-        if self._client is None:
-            self._client = httpx2.AsyncClient(
-                base_url=self._base_url,
-                timeout=DEFAULT_TIMEOUT,
-                headers={"User-Agent": self._user_agent},
-                transport=self._transport,
-            )
-        return self._client
+    def _new_client(self) -> httpx2.AsyncClient:
+        return httpx2.AsyncClient(
+            base_url=self._base_url,
+            timeout=DEFAULT_TIMEOUT,
+            limits=httpx2.Limits(max_connections=MAX_CONNECTIONS_PER_CALL),
+            headers={"User-Agent": self._user_agent},
+            transport=self._transport,
+        )

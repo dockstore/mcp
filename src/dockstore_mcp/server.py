@@ -14,10 +14,12 @@
 """Construction of the Dockstore MCP server."""
 
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from typing import Any
 
+import mcp.types as mt
 from fastmcp import FastMCP
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+from fastmcp.tools import ToolResult
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -37,6 +39,20 @@ through both the GA4GH Tool Registry Service (TRS) API and Dockstore's own API.
 """
 
 
+class _ConnectPerToolCall(Middleware):
+    """Give each tool call a fresh connection pool, so it resolves and connects to Dockstore anew."""
+
+    def __init__(self, api: DockstoreApi) -> None:
+        self._api = api
+
+    async def on_call_tool(
+        self, context: MiddlewareContext[mt.CallToolRequestParams], call_next: CallNext[mt.CallToolRequestParams, Any]
+    ) -> ToolResult:
+        async with self._api.connection():
+            result: ToolResult = await call_next(context)
+            return result
+
+
 def create_server(settings: Settings | None = None, api: DockstoreApi | None = None) -> FastMCP:
     """Build a server instance with every tool registered.
 
@@ -49,20 +65,12 @@ def create_server(settings: Settings | None = None, api: DockstoreApi | None = N
     settings = settings or get_settings()
     api = api or DockstoreApi(settings)
 
-    @asynccontextmanager
-    async def lifespan(_server: FastMCP) -> AsyncIterator[None]:
-        """Hold the connection pool open for as long as the server is running."""
-        try:
-            yield
-        finally:
-            await api.aclose()
-
     mcp: FastMCP = FastMCP(
         name="dockstore",
         version=settings.server_version,
         instructions=INSTRUCTIONS,
         website_url=settings.dockstore_public_url,
-        lifespan=lifespan,
+        middleware=[_ConnectPerToolCall(api)],
         # Unexpected exceptions can carry internal details, such as the API URL; only ToolErrors reach clients.
         mask_error_details=True,
     )

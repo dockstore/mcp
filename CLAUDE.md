@@ -83,16 +83,18 @@ back from the installed package's metadata at runtime (`importlib.metadata.versi
 ## Architecture
 
 - `src/dockstore_mcp/server.py` — `create_server(settings, api)` builds the `FastMCP`
-  instance and the shared `DockstoreApi` client (closed on shutdown), adds the `/health`
-  route, and calls `register_all`. There's also a
+  instance and the shared `DockstoreApi` client, wraps every tool call in that client's
+  `connection()` (middleware), adds the `/health` route, and calls `register_all`. There's also a
   module-level `mcp` instance for `fastmcp run dockstore_mcp.server:mcp`.
 - `src/dockstore_mcp/config.py` — `Settings` (pydantic-settings), env-prefixed
   `DOCKSTORE_MCP_*`, also readable from `.env`. CLI flags (parsed in `__main__.py`)
   override the environment. `dockstore_api_url`, if unset or empty, is derived from
   `dockstore_public_url` (which entry links use) during validation; `dockstore_trs_url` builds on it.
 - `src/dockstore_mcp/api.py` — `DockstoreApi`, the one HTTP client per server that every
-  tool (TRS ones included, under `TRS_PATH`) reaches the webservice through, so calls reuse
-  its connection pool and share its error handling. It speaks JSON only; turning payloads
+  tool (TRS ones included, under `TRS_PATH`) reaches the webservice through, so calls share
+  its error handling. Each tool call gets a fresh connection pool, so it re-resolves DNS and
+  connects anew (following failover), while its own requests share connections, at most
+  `MAX_CONNECTIONS_PER_CALL` (4) at once. It speaks JSON only; turning payloads
   into models is each tool's job.
 - `src/dockstore_mcp/casing.py` — `normalize_keys`/`camel_to_snake`, for turning Dockstore's
   camelCase JSON into the snake_case models.
