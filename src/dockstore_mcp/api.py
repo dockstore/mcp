@@ -114,7 +114,7 @@ class DockstoreApi:
             response = await client.request(method, path, params=params, json=body)
         except httpx2.RequestError as error:
             logger.warning("Request to %s%s failed: %s", self._base_url, path, error)
-            raise DockstoreError(f"Could not reach Dockstore at {self._base_url}.") from error
+            raise DockstoreError("Could not reach Dockstore.") from error
 
         if response.status_code == httpx2.codes.NOT_FOUND:
             raise NotFoundError(f"Dockstore has nothing at {path}.")

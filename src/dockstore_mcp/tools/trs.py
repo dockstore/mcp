@@ -23,6 +23,7 @@ file listing yields the paths ``get_tool_descriptor_by_path`` takes.
 """
 
 import asyncio
+import logging
 from typing import Annotated, Any
 from urllib.parse import quote
 
@@ -31,6 +32,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
+from dockstore_mcp.api import DockstoreError, NotFoundError
 from dockstore_mcp.casing import normalize_keys
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import (
@@ -49,6 +51,8 @@ from dockstore_mcp.models import (
 )
 
 __all__ = ["register"]
+
+logger = logging.getLogger(__name__)
 
 #: How long to wait for the Dockstore TRS API to respond.
 REQUEST_TIMEOUT = 30.0
@@ -150,9 +154,22 @@ def register(mcp: FastMCP, settings: Settings) -> None:
     client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT, headers={"User-Agent": settings.user_agent})
 
     async def get(path: str, params: dict[str, Any] | None = None) -> httpx.Response:
-        """GET ``path`` under the TRS API root, raising on an error status."""
-        response = await client.get(f"{settings.dockstore_trs_url}{path}", params=params)
-        response.raise_for_status()
+        """GET ``path`` under the TRS API root, raising a :class:`DockstoreError` on failure.
+
+        httpx's own errors name the full request URL, which may be an internal address
+        (``dockstore_api_url``), so they are logged here and never reach the client.
+        """
+        url = f"{settings.dockstore_trs_url}{path}"
+        try:
+            response = await client.get(url, params=params)
+        except httpx.RequestError as error:
+            logger.warning("Request to %s failed: %s", url, error)
+            raise DockstoreError("Could not reach Dockstore.") from error
+        if response.status_code == httpx.codes.NOT_FOUND:
+            raise NotFoundError(f"Dockstore has nothing at {path}.")
+        if response.is_error:
+            logger.warning("Dockstore answered %s with %s", url, response.status_code)
+            raise DockstoreError(f"Dockstore answered with HTTP {response.status_code}.")
         return response
 
     async def get_json(path: str, params: dict[str, Any] | None = None) -> Any:
@@ -376,7 +393,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         async def list_files() -> dict[str, Any]:
             try:
                 data = await get_json(f"{path}/{files}/files")
-            except httpx.HTTPError as error:
+            except DockstoreError as error:
                 return {"files_error": f"Could not list the version's {files} files: {error}"}
             return {"files": [ToolFile.model_validate(item) for item in data]}
 

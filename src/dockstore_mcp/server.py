@@ -63,6 +63,8 @@ def create_server(settings: Settings | None = None, api: DockstoreApi | None = N
         instructions=INSTRUCTIONS,
         website_url=settings.dockstore_public_url,
         lifespan=lifespan,
+        # Unexpected exceptions can carry internal details, such as the API URL; only ToolErrors reach clients.
+        mask_error_details=True,
     )
 
     @mcp.custom_route("/health", methods=["GET"], include_in_schema=False)

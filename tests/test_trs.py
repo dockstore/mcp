@@ -26,6 +26,9 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from dockstore_mcp import __version__
+from dockstore_mcp.api import DockstoreApi
+from dockstore_mcp.config import Settings
+from dockstore_mcp.server import create_server
 
 SERVICE_INFO_RESPONSE = {
     "id": "org.dockstore.staging",
@@ -563,3 +566,53 @@ async def test_requests_identify_the_server(client: Client[Any], requests_made: 
     async with client:
         await client.call_tool("get_trs_info", {})
     assert requests_made[0].headers["User-Agent"] == f"dockstore-mcp/{__version__}"
+
+
+#: An internal webservice address, which must never appear in anything a client sees.
+_INTERNAL_API_URL = "http://webservice.internal:8080/api"
+
+
+def _unreachable(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError(f"Could not connect to {request.url}", request=request)
+
+
+def _internal_client() -> Client[Any]:
+    """A client for a server whose API URL is internal, and whose DockstoreApi cannot reach it."""
+    settings = Settings(
+        dockstore_public_url="https://staging.dockstore.org", dockstore_api_url=_INTERNAL_API_URL, transport="stdio"
+    )
+    return Client(create_server(settings, DockstoreApi(settings, transport=httpx.MockTransport(_unreachable))))
+
+
+async def test_trs_http_errors_do_not_reveal_the_api_url(_mock_trs_api: dict[str, httpx.Response]) -> None:
+    _mock_trs_api[f"{_VERSION_PATH}/CWL/files"] = httpx.Response(500)
+    async with _internal_client() as client:
+        result = await client.call_tool(
+            "get_tool_version", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "files": "CWL"}
+        )
+        assert "500" in result.data.files_error
+        assert "internal" not in result.data.files_error
+
+        _mock_trs_api[_VERSION_PATH] = httpx.Response(500)
+        with pytest.raises(ToolError) as error:
+            await client.call_tool("get_tool_version", {"tool_id": TOOL_ID, "version_id": VERSION_ID})
+    assert "500" in str(error.value)
+    assert "internal" not in str(error.value)
+
+
+async def test_unreachable_trs_api_errors_do_not_reveal_the_api_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(httpx, "AsyncClient", _mock_client_factory(_unreachable))
+    async with _internal_client() as client:
+        with pytest.raises(ToolError) as error:
+            await client.call_tool("get_trs_info", {})
+    assert "internal" not in str(error.value)
+
+
+async def test_unreachable_dockstore_api_errors_do_not_reveal_the_api_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    # DockstoreApi passes its own transport, which the mocked class would receive twice.
+    monkeypatch.setattr(httpx, "AsyncClient", _RealAsyncClient)
+    async with _internal_client() as client:
+        with pytest.raises(ToolError) as error:
+            await client.call_tool("get_entry", {"entry_id": TOOL_ID})
+    assert "Could not reach Dockstore" in str(error.value)
+    assert "internal" not in str(error.value)
