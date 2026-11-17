@@ -151,7 +151,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
 
     async def get(path: str, params: dict[str, Any] | None = None) -> httpx.Response:
         """GET ``path`` under the TRS API root, raising on an error status."""
-        response = await client.get(f"{settings.trs_url}{path}", params=params)
+        response = await client.get(f"{settings.dockstore_trs_url}{path}", params=params)
         response.raise_for_status()
         return response
 

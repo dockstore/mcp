@@ -72,7 +72,9 @@ def create_server(settings: Settings | None = None, api: DockstoreApi | None = N
 
     register_all(mcp, settings, api)
     logger.debug(
-        "Server built against Dockstore instance %s (API at %s)", settings.dockstore_public_url, settings.api_url
+        "Server built against Dockstore instance %s (API at %s)",
+        settings.dockstore_public_url,
+        settings.dockstore_api_url,
     )
     return mcp
 

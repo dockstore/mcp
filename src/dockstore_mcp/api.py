@@ -67,7 +67,7 @@ class DockstoreApi:
             transport: Transport to send requests over. Defaults to a real one;
                 tests pass a stub.
         """
-        self._base_url = settings.api_url
+        self._base_url = settings.dockstore_api_url
         self._transport = transport
         self._client: httpx2.AsyncClient | None = None
 

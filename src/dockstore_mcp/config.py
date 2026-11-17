@@ -19,10 +19,10 @@ Every setting can be supplied as an environment variable prefixed with
 """
 
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 from urllib.parse import urlparse
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from dockstore_mcp import __version__
@@ -54,11 +54,11 @@ class Settings(BaseSettings):
         default="https://dockstore.org",
         description="Public base URL of the Dockstore instance, as its users see it; links to entries point here.",
     )
-    dockstore_api_url: str | None = Field(
-        default=None,
+    dockstore_api_url: str = Field(
+        default="",
         description=(
             "Base URL of the webservice's Dockstore/TRS APIs, e.g. an internal address for the webservice. "
-            "Derived from dockstore_public_url when unset."
+            "Derived from dockstore_public_url when unset or empty."
         ),
     )
 
@@ -70,16 +70,10 @@ class Settings(BaseSettings):
         ),
     )
 
-    @field_validator("dockstore_api_url", mode="before")
-    @classmethod
-    def _empty_api_url_is_unset(cls, value: object) -> object:
-        # docker-compose.yml passes "" when DOCKSTORE_API_URL is unset; derive it instead.
-        return None if value == "" else value
-
     @field_validator("dockstore_public_url", "dockstore_api_url")
     @classmethod
-    def _strip_trailing_slash(cls, value: str | None) -> str | None:
-        return value.rstrip("/") if value is not None else None
+    def _strip_trailing_slash(cls, value: str) -> str:
+        return value.rstrip("/")
 
     @field_validator("path")
     @classmethod
@@ -88,24 +82,20 @@ class Settings(BaseSettings):
             raise ValueError("path must start with '/'")
         return value.rstrip("/") or "/"
 
-    @property
-    def api_url(self) -> str:
-        """Base URL of the webservice's Dockstore/TRS APIs.
-
-        ``dockstore_api_url`` when set. Otherwise it is derived from the public URL: deployed
-        instances serve the webservice under ``/api`` behind a proxy, whereas a webservice
-        running on localhost is typically reached directly, without the prefix.
-        """
-        if self.dockstore_api_url is not None:
-            return self.dockstore_api_url
-        if urlparse(self.dockstore_public_url).hostname == "localhost":
-            return self.dockstore_public_url
-        return f"{self.dockstore_public_url}/api"
+    @model_validator(mode="after")
+    def _derive_api_url(self) -> Self:
+        # Unset or empty (e.g. an uncommented "DOCKSTORE_MCP_DOCKSTORE_API_URL=" in .env): derive it from the
+        # public URL. Deployed instances serve the webservice under /api behind a proxy, whereas a webservice
+        # running on localhost is typically reached directly, without the prefix.
+        if not self.dockstore_api_url:
+            public = self.dockstore_public_url
+            self.dockstore_api_url = public if urlparse(public).hostname == "localhost" else f"{public}/api"
+        return self
 
     @property
-    def trs_url(self) -> str:
+    def dockstore_trs_url(self) -> str:
         """Base URL of the instance's GA4GH Tool Registry Service API."""
-        return f"{self.api_url}/ga4gh/trs/v2"
+        return f"{self.dockstore_api_url}/ga4gh/trs/v2"
 
     @property
     def server_version(self) -> str:
