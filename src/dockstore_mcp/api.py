@@ -24,15 +24,17 @@ from typing import Any
 import httpx2
 from fastmcp.exceptions import ToolError
 
-from dockstore_mcp import __version__
 from dockstore_mcp.config import Settings
 
-__all__ = ["DEFAULT_TIMEOUT", "BadRequestError", "DockstoreApi", "DockstoreError", "NotFoundError"]
+__all__ = ["DEFAULT_TIMEOUT", "TRS_PATH", "BadRequestError", "DockstoreApi", "DockstoreError", "NotFoundError"]
 
 logger = logging.getLogger(__name__)
 
 #: Seconds to wait on the webservice before giving up on a request.
 DEFAULT_TIMEOUT = 30.0
+
+#: Where the GA4GH Tool Registry Service V2 API lives, relative to the webservice's root.
+TRS_PATH = "/ga4gh/trs/v2"
 
 
 class DockstoreError(ToolError):
@@ -53,7 +55,7 @@ class BadRequestError(DockstoreError):
 
 
 class DockstoreApi:
-    """A client for one Dockstore instance's own (non-TRS) API.
+    """A client for one Dockstore instance's webservice: both its own API and its TRS API (under :data:`TRS_PATH`).
 
     The underlying connection pool is opened on the first request and closed by
     :meth:`aclose`, which the server calls when it shuts down.
@@ -68,26 +70,39 @@ class DockstoreApi:
                 tests pass a stub.
         """
         self._base_url = settings.dockstore_api_url
+        self._user_agent = settings.user_agent
         self._transport = transport
         self._client: httpx2.AsyncClient | None = None
 
+    async def get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        """GET ``path`` and return the JSON Dockstore answered with, whatever its shape."""
+        payload, _ = await self._request("GET", path, params)
+        return payload
+
+    async def get_with_headers(self, path: str, params: dict[str, Any] | None = None) -> tuple[Any, httpx2.Headers]:
+        """GET ``path`` and return the JSON Dockstore answered with, plus the response's headers.
+
+        For paged endpoints, which report where the other pages are in headers.
+        """
+        return await self._request("GET", path, params)
+
     async def get_object(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """GET ``path`` and return the JSON object Dockstore answered with."""
-        payload = await self._request("GET", path, params)
+        payload = await self.get_json(path, params)
         if not isinstance(payload, dict):
             raise DockstoreError(f"Dockstore answered {path} with something other than an object.")
         return payload
 
     async def get_list(self, path: str, params: dict[str, Any] | None = None) -> list[Any]:
         """GET ``path`` and return the JSON array Dockstore answered with."""
-        payload = await self._request("GET", path, params)
+        payload = await self.get_json(path, params)
         if not isinstance(payload, list):
             raise DockstoreError(f"Dockstore answered {path} with something other than an array.")
         return payload
 
     async def post_object(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         """POST ``body`` as JSON to ``path`` and return the JSON object Dockstore answered with."""
-        payload = await self._request("POST", path, None, body)
+        payload, _ = await self._request("POST", path, None, body)
         if not isinstance(payload, dict):
             raise DockstoreError(f"Dockstore answered {path} with something other than an object.")
         return payload
@@ -100,8 +115,12 @@ class DockstoreApi:
 
     async def _request(
         self, method: str, path: str, params: dict[str, Any] | None, body: dict[str, Any] | None = None
-    ) -> Any:
-        """Make the request and decode the body.
+    ) -> tuple[Any, httpx2.Headers]:
+        """Make the request and decode the body, returning it with the response's headers.
+
+        httpx's own errors name the full request URL, which may be an internal
+        address (``dockstore_api_url``), so they are logged here and never reach
+        the client.
 
         Raises:
             NotFoundError: if Dockstore answered 404.
@@ -126,7 +145,7 @@ class DockstoreApi:
             raise DockstoreError(f"Dockstore answered with HTTP {response.status_code}.")
 
         try:
-            return response.json()
+            return response.json(), response.headers
         except ValueError as error:
             logger.warning("Dockstore answered %s%s with a body that is not JSON", self._base_url, path)
             raise DockstoreError("Dockstore answered with a body that is not JSON.") from error
@@ -136,7 +155,7 @@ class DockstoreApi:
             self._client = httpx2.AsyncClient(
                 base_url=self._base_url,
                 timeout=DEFAULT_TIMEOUT,
-                headers={"User-Agent": f"dockstore-mcp/{__version__}"},
+                headers={"User-Agent": self._user_agent},
                 transport=self._transport,
             )
         return self._client

@@ -31,4 +31,4 @@ def register_all(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
     """Register every tool this server provides."""
     search.register(mcp, settings, api)
     entries.register(mcp, settings, api)
-    trs.register(mcp, settings)
+    trs.register(mcp, settings, api)

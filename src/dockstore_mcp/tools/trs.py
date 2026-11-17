@@ -14,8 +14,8 @@
 """GA4GH TRS V2 tools: what this Dockstore instance is, what kinds of tools it
 registers, and the tools, versions, and files themselves.
 
-Unlike the tools in ``entries.py`` and ``search.py``, these are wired up to the real
-Dockstore API: every one is an unauthenticated GET against the TRS V2 API.
+Every one is an unauthenticated GET against the TRS V2 API, made through the
+server's shared :class:`~dockstore_mcp.api.DockstoreApi`.
 
 The lookups form a chain: ``list_tools`` yields tool ids,
 ``get_tool`` yields version names, and ``get_tool_version``'s
@@ -23,7 +23,6 @@ file listing yields the paths ``get_tool_descriptor_by_path`` takes.
 """
 
 import asyncio
-import logging
 from typing import Annotated, Any
 from urllib.parse import quote
 
@@ -32,7 +31,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from dockstore_mcp.api import DockstoreError, NotFoundError
+from dockstore_mcp.api import TRS_PATH, DockstoreApi, DockstoreError
 from dockstore_mcp.casing import normalize_keys
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import (
@@ -51,11 +50,6 @@ from dockstore_mcp.models import (
 )
 
 __all__ = ["register"]
-
-logger = logging.getLogger(__name__)
-
-#: How long to wait for the Dockstore TRS API to respond.
-REQUEST_TIMEOUT = 30.0
 
 #: How many tools list_tools returns per page unless asked for more.
 #: The TRS default of 1000 would flood a model's context: every tool carries all of
@@ -138,39 +132,19 @@ def _summarize(tool: Tool) -> ToolSummary:
     )
 
 
-def _page_offset(response: httpx.Response, header: str) -> int | None:
+def _page_offset(headers: httpx.Headers, header: str) -> int | None:
     """The offset in a paged response's ``header`` link, e.g. ``last_page`` or ``next_page``, if it has one."""
-    link = response.headers.get(header)
+    link = headers.get(header)
     offset = httpx.URL(link).params.get("offset") if link else None
     return int(offset) if offset is not None and offset.isdigit() else None
 
 
-def register(mcp: FastMCP, settings: Settings) -> None:
+def register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None:
     """Add the TRS V2 tools to ``mcp``."""
 
-    # Shared for every call this server handles, so the tools below don't pay a
-    # fresh TCP/TLS handshake to Dockstore on every invocation. Reuse this same
-    # client as more TRS-backed tools join this module.
-    client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT, headers={"User-Agent": settings.user_agent})
-
-    async def get(path: str, params: dict[str, Any] | None = None) -> httpx.Response:
-        """GET ``path`` under the TRS API root, raising a :class:`DockstoreError` on failure.
-
-        httpx's own errors name the full request URL, which may be an internal address
-        (``dockstore_api_url``), so they are logged here and never reach the client.
-        """
-        url = f"{settings.dockstore_trs_url}{path}"
-        try:
-            response = await client.get(url, params=params)
-        except httpx.RequestError as error:
-            logger.warning("Request to %s failed: %s", url, error)
-            raise DockstoreError("Could not reach Dockstore.") from error
-        if response.status_code == httpx.codes.NOT_FOUND:
-            raise NotFoundError(f"Dockstore has nothing at {path}.")
-        if response.is_error:
-            logger.warning("Dockstore answered %s with %s", url, response.status_code)
-            raise DockstoreError(f"Dockstore answered with HTTP {response.status_code}.")
-        return response
+    async def get_with_headers(path: str, params: dict[str, Any] | None = None) -> tuple[Any, httpx.Headers]:
+        """GET ``path`` under the TRS API root and return its parsed body and headers."""
+        return await api.get_with_headers(f"{TRS_PATH}{path}", params)
 
     async def get_json(path: str, params: dict[str, Any] | None = None) -> Any:
         """GET ``path`` under the TRS API root and return its parsed body.
@@ -179,7 +153,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         keys, so they skip ``normalize_keys``, which would also mangle data-valued
         keys such as the 'CWL' in ``descriptor_type_version``.
         """
-        return (await get(path, params)).json()
+        return await api.get_json(f"{TRS_PATH}{path}", params)
 
     async def get_page_of_tools(filters: dict[str, Any], limit: int, offset: int, summary: bool) -> PageOfTools:
         """Fetch one page of ``/tools`` matching ``filters``, and work out the total across every page.
@@ -189,10 +163,10 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         page past the end whenever ``limit`` divides the total evenly. So the total
         is counted from the last page's contents, fetching it if this isn't it.
         """
-        response = await get("/tools", {**filters, "limit": limit, "offset": offset})
-        tools = [Tool.model_validate(item) for item in response.json()]
+        page, headers = await get_with_headers("/tools", {**filters, "limit": limit, "offset": offset})
+        tools = [Tool.model_validate(item) for item in page]
         total = None
-        last_offset = _page_offset(response, "last_page")
+        last_offset = _page_offset(headers, "last_page")
         if last_offset is not None:
             if last_offset == offset:
                 last_page_size = len(tools)
@@ -241,9 +215,9 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         local = {"dockstore_url": settings.dockstore_public_url, "server_version": settings.server_version}
         if local_only:
             return TrsInfo.model_validate(local)
-        service_info, tool_classes = await asyncio.gather(get("/service-info"), get("/toolClasses"))
-        info = TrsInfo.model_validate({**normalize_keys(service_info.json()), **local})
-        info.tool_classes = [ToolClass.model_validate(item) for item in normalize_keys(tool_classes.json())]
+        service_info, tool_classes = await asyncio.gather(get_json("/service-info"), get_json("/toolClasses"))
+        info = TrsInfo.model_validate({**normalize_keys(service_info), **local})
+        info.tool_classes = [ToolClass.model_validate(item) for item in normalize_keys(tool_classes)]
         return info
 
     @mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": True})
@@ -338,11 +312,11 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         """
         path = f"/tools/{_segment(tool_id)}"
         # The tool's versions come from the paged /versions instead, so skip loading them here.
-        data, response = await asyncio.gather(
+        data, (versions, headers) = await asyncio.gather(
             get_json(path, {"includeVersions": "false"}),
-            get(f"{path}/versions", {"limit": version_limit, "offset": version_offset}),
+            get_with_headers(f"{path}/versions", {"limit": version_limit, "offset": version_offset}),
         )
-        if "current_limit" not in response.headers:
+        if "current_limit" not in headers:
             # Dockstore before SEAB-7771 ignores limit and offset and returns every version.
             raise ToolError(
                 f"{settings.dockstore_public_url} does not page tool versions, so get_tool cannot list them."
@@ -350,10 +324,10 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         tool = ToolWithPageOfVersions.model_validate(
             {
                 **data,
-                "versions": response.json(),
+                "versions": versions,
                 "version_offset": version_offset,
                 "version_limit": version_limit,
-                "next_version_offset": _page_offset(response, "next_page"),
+                "next_version_offset": _page_offset(headers, "next_page"),
             }
         )
         if summary and tool.versions is not None:

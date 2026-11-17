@@ -13,9 +13,8 @@
 #    limitations under the License.
 """Tests for the GA4GH TRS V2 tools in trs.py.
 
-Unlike the other Dockstore tools, these are wired up to the real API, so
-instead of asserting ``NotImplementedError`` these tests stub the HTTP layer with
-an ``httpx2.MockTransport`` and check that a response is parsed correctly.
+These hand the server's :class:`DockstoreApi` an ``httpx2.MockTransport`` that
+serves canned TRS payloads, and check that each response is parsed correctly.
 """
 
 from typing import Any
@@ -159,35 +158,25 @@ def _versions_page(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json=VERSIONS[offset * limit : (offset + 1) * limit], headers=headers)
 
 
-#: The real class, captured before any test monkeypatches ``httpx.AsyncClient``.
-_RealAsyncClient = httpx.AsyncClient
-
-
-def _mock_client_factory(handler: Any) -> Any:
-    """Build a stand-in for ``httpx.AsyncClient`` that routes every request through ``handler``."""
-
-    def fake_client(**kwargs: Any) -> httpx.AsyncClient:
-        return _RealAsyncClient(**kwargs, transport=httpx.MockTransport(handler))
-
-    return fake_client
-
-
 @pytest.fixture
 def requests_made() -> list[httpx.Request]:
     """Every request trs.py sends during a test, in order."""
     return []
 
 
-@pytest.fixture(autouse=True)
-def _mock_trs_api(monkeypatch: pytest.MonkeyPatch, requests_made: list[httpx.Request]) -> dict[str, httpx.Response]:
-    """Route every request trs.py makes through a canned handler instead of the network.
+@pytest.fixture
+def _mock_trs_api() -> dict[str, httpx.Response]:
+    """Responses that replace the canned ones, keyed by path relative to the TRS API root.
 
-    trs.py now builds its ``httpx.AsyncClient`` once, when the server is constructed,
-    so the class can only be swapped before that happens (i.e. from this fixture, not
-    from within a test body). A test that wants a different response overrides it here
-    instead, since the handler consults ``overrides`` fresh on every request.
+    The handler consults these fresh on every request, so a test can change them at any point.
     """
-    overrides: dict[str, httpx.Response] = {}
+    return {}
+
+
+@pytest.fixture
+def trs_transport(_mock_trs_api: dict[str, httpx.Response], requests_made: list[httpx.Request]) -> httpx.MockTransport:
+    """A transport that answers every TRS request from canned payloads instead of the network."""
+    overrides = _mock_trs_api
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests_made.append(request)
@@ -202,8 +191,12 @@ def _mock_trs_api(monkeypatch: pytest.MonkeyPatch, requests_made: list[httpx.Req
             return httpx.Response(404, json={"error": "not found"})
         return httpx.Response(200, json=RESPONSES[path])
 
-    monkeypatch.setattr(httpx, "AsyncClient", _mock_client_factory(handler))
-    return overrides
+    return httpx.MockTransport(handler)
+
+
+@pytest.fixture
+def api(settings: Settings, trs_transport: httpx.MockTransport) -> DockstoreApi:
+    return DockstoreApi(settings, transport=trs_transport)
 
 
 async def test_get_trs_info(client: Client[Any]) -> None:
@@ -576,17 +569,20 @@ def _unreachable(request: httpx.Request) -> httpx.Response:
     raise httpx.ConnectError(f"Could not connect to {request.url}", request=request)
 
 
-def _internal_client() -> Client[Any]:
-    """A client for a server whose API URL is internal, and whose DockstoreApi cannot reach it."""
+def _internal_client(transport: httpx.AsyncBaseTransport | None = None) -> Client[Any]:
+    """A client for a server whose API URL is internal, and which (unless given a transport) cannot reach it."""
     settings = Settings(
         dockstore_public_url="https://staging.dockstore.org", dockstore_api_url=_INTERNAL_API_URL, transport="stdio"
     )
-    return Client(create_server(settings, DockstoreApi(settings, transport=httpx.MockTransport(_unreachable))))
+    transport = transport or httpx.MockTransport(_unreachable)
+    return Client(create_server(settings, DockstoreApi(settings, transport=transport)))
 
 
-async def test_trs_http_errors_do_not_reveal_the_api_url(_mock_trs_api: dict[str, httpx.Response]) -> None:
+async def test_trs_http_errors_do_not_reveal_the_api_url(
+    _mock_trs_api: dict[str, httpx.Response], trs_transport: httpx.MockTransport
+) -> None:
     _mock_trs_api[f"{_VERSION_PATH}/CWL/files"] = httpx.Response(500)
-    async with _internal_client() as client:
+    async with _internal_client(trs_transport) as client:
         result = await client.call_tool(
             "get_tool_version", {"tool_id": TOOL_ID, "version_id": VERSION_ID, "files": "CWL"}
         )
@@ -600,17 +596,14 @@ async def test_trs_http_errors_do_not_reveal_the_api_url(_mock_trs_api: dict[str
     assert "internal" not in str(error.value)
 
 
-async def test_unreachable_trs_api_errors_do_not_reveal_the_api_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(httpx, "AsyncClient", _mock_client_factory(_unreachable))
+async def test_unreachable_trs_api_errors_do_not_reveal_the_api_url() -> None:
     async with _internal_client() as client:
         with pytest.raises(ToolError) as error:
             await client.call_tool("get_trs_info", {})
     assert "internal" not in str(error.value)
 
 
-async def test_unreachable_dockstore_api_errors_do_not_reveal_the_api_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    # DockstoreApi passes its own transport, which the mocked class would receive twice.
-    monkeypatch.setattr(httpx, "AsyncClient", _RealAsyncClient)
+async def test_unreachable_dockstore_api_errors_do_not_reveal_the_api_url() -> None:
     async with _internal_client() as client:
         with pytest.raises(ToolError) as error:
             await client.call_tool("get_entry", {"entry_id": TOOL_ID})

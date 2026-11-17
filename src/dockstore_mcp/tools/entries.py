@@ -36,7 +36,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from dockstore_mcp.api import DockstoreApi, DockstoreError, NotFoundError
+from dockstore_mcp.api import TRS_PATH, DockstoreApi, DockstoreError, NotFoundError
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import (
     DescriptorLanguage,
@@ -373,7 +373,7 @@ async def _fetch_file(api: DockstoreApi, trs_id: str, name: str, path: str) -> t
 
 def _trs_version_endpoint(trs_id: str, name: str) -> str:
     """Where TRS serves a version, with the entry's identifier and the version name each as one segment."""
-    return f"/ga4gh/trs/v2/tools/{quote(trs_id, safe='')}/versions/{quote(name, safe='')}"
+    return f"{TRS_PATH}/tools/{quote(trs_id, safe='')}/versions/{quote(name, safe='')}"
 
 
 def _dockstore_id(payload: dict[str, Any]) -> str:

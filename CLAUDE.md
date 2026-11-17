@@ -90,9 +90,10 @@ back from the installed package's metadata at runtime (`importlib.metadata.versi
   `DOCKSTORE_MCP_*`, also readable from `.env`. CLI flags (parsed in `__main__.py`)
   override the environment. `dockstore_api_url`, if unset or empty, is derived from
   `dockstore_public_url` (which entry links use) during validation; `dockstore_trs_url` builds on it.
-- `src/dockstore_mcp/api.py` — `DockstoreApi`, the one HTTP client per server that the
-  Dockstore tools reach the webservice through, so calls reuse its connection pool. It
-  speaks JSON only; turning payloads into models is each tool's job.
+- `src/dockstore_mcp/api.py` — `DockstoreApi`, the one HTTP client per server that every
+  tool (TRS ones included, under `TRS_PATH`) reaches the webservice through, so calls reuse
+  its connection pool and share its error handling. It speaks JSON only; turning payloads
+  into models is each tool's job.
 - `src/dockstore_mcp/casing.py` — `normalize_keys`/`camel_to_snake`, for turning Dockstore's
   camelCase JSON into the snake_case models.
 - `src/dockstore_mcp/models.py` — Pydantic models/enums shared by the tools (`Entry`,
@@ -100,9 +101,8 @@ back from the installed package's metadata at runtime (`importlib.metadata.versi
   `Entry`/`Version`/`File` is optional, since Dockstore doesn't fill in every one for
   every kind of entry.
 - `src/dockstore_mcp/tools/` — one module per cohesive tool group, each exposing
-  a `register` function. The Dockstore tool modules take
-  `register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None`; `trs.py` makes
-  its own requests and takes only `(mcp, settings)`. `tools/__init__.py`'s
+  a `register(mcp: FastMCP, settings: Settings, api: DockstoreApi) -> None` function.
+  `tools/__init__.py`'s
   `register_all(mcp, settings, api)` calls each in turn; new tool modules must be added there.
   - `trs.py` — the GA4GH TRS tools, implemented. `get_trs_info(local_only=True)` doubles as a
     smoke test that never contacts Dockstore.
