@@ -66,7 +66,7 @@ Over HTTP it serves two paths:
 ```bash
 docker build -t dockstore/dockstore-mcp:local .
 docker run --rm -p 8000:8000 \
-  -e DOCKSTORE_MCP_DOCKSTORE_URL=https://qa.dockstore.org \
+  -e DOCKSTORE_MCP_DOCKSTORE_PUBLIC_URL=https://qa.dockstore.org \
   dockstore/dockstore-mcp:local
 ```
 
@@ -75,7 +75,9 @@ The image defaults to the HTTP transport on port 8000 and runs as a non-root use
 machine:
 
 ```bash
-DOCKSTORE_URL=http://host.docker.internal:8080 docker compose up --build
+DOCKSTORE_PUBLIC_URL=http://localhost:4200 \
+DOCKSTORE_API_URL=http://host.docker.internal:8080 \
+docker compose up --build
 ```
 
 ### With an MCP client
@@ -88,7 +90,7 @@ entry point. For example, in Claude Desktop's `claude_desktop_config.json`:
   "mcpServers": {
     "dockstore": {
       "command": "/path/to/mcp/.venv/bin/dockstore-mcp",
-      "env": { "DOCKSTORE_MCP_DOCKSTORE_URL": "https://dockstore.org" }
+      "env": { "DOCKSTORE_MCP_DOCKSTORE_PUBLIC_URL": "https://dockstore.org" }
     }
   }
 }
@@ -107,15 +109,20 @@ Every option can be set with a `DOCKSTORE_MCP_`-prefixed environment variable, i
 `.env` file (see [.env.example](.env.example)), or with a command line flag. Flags win
 over the environment.
 
-| Variable                      | Flag              | Default                 | Meaning                                          |
-| ----------------------------- | ----------------- | ----------------------- | ------------------------------------------------ |
-| `DOCKSTORE_MCP_TRANSPORT`     | `--transport`     | `stdio`                 | `stdio` or `http`                                |
-| `DOCKSTORE_MCP_HOST`          | `--host`          | `127.0.0.1`             | Interface to bind, HTTP only                     |
-| `DOCKSTORE_MCP_PORT`          | `--port`          | `8000`                  | Port to bind, HTTP only                          |
-| `DOCKSTORE_MCP_PATH`          | `--path`          | `/mcp`                  | Path the MCP endpoint is served from             |
-| `DOCKSTORE_MCP_LOG_LEVEL`     | `--log-level`     | `INFO`                  | Logging verbosity                                |
-| `DOCKSTORE_MCP_DOCKSTORE_URL` | `--dockstore-url` | `https://dockstore.org` | Dockstore instance whose APIs are exposed        |
-| `DOCKSTORE_MCP_GIT_REF`       |                   | package version         | Version in the `dockstore-mcp/<ref>` User-Agent  |
+| Variable                             | Flag                     | Default                 | Meaning                                                  |
+| ------------------------------------ | ------------------------ | ----------------------- | -------------------------------------------------------- |
+| `DOCKSTORE_MCP_TRANSPORT`            | `--transport`            | `stdio`                 | `stdio` or `http`                                        |
+| `DOCKSTORE_MCP_HOST`                 | `--host`                 | `127.0.0.1`             | Interface to bind, HTTP only                             |
+| `DOCKSTORE_MCP_PORT`                 | `--port`                 | `8000`                  | Port to bind, HTTP only                                  |
+| `DOCKSTORE_MCP_PATH`                 | `--path`                 | `/mcp`                  | Path the MCP endpoint is served from                     |
+| `DOCKSTORE_MCP_LOG_LEVEL`            | `--log-level`            | `INFO`                  | Logging verbosity                                        |
+| `DOCKSTORE_MCP_DOCKSTORE_PUBLIC_URL` | `--dockstore-public-url` | `https://dockstore.org` | Public URL of the Dockstore instance; entry links use it |
+| `DOCKSTORE_MCP_DOCKSTORE_API_URL`    | `--dockstore-api-url`    | derived (see below)     | Base URL of the webservice's Dockstore/TRS APIs          |
+| `DOCKSTORE_MCP_GIT_REF`              |                          | package version         | Version in the `dockstore-mcp/<ref>` User-Agent          |
+
+When `DOCKSTORE_MCP_DOCKSTORE_API_URL` is unset, it is derived from the public URL: the
+public URL plus `/api`, or the public URL itself when its host is `localhost`. Set it when
+the server reaches the webservice somewhere else, such as an internal address.
 
 The container image overrides the first four so that it listens on `0.0.0.0:8000` out of
 the box, and sets `DOCKSTORE_MCP_GIT_REF` from its `GIT_REF` build argument, which the

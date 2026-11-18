@@ -24,7 +24,8 @@ def test_defaults() -> None:
     settings = Settings()
     assert settings.transport == "stdio"
     assert settings.port == 8000
-    assert settings.dockstore_url == "https://dockstore.org"
+    assert settings.dockstore_public_url == "https://dockstore.org"
+    assert settings.dockstore_api_url == "https://dockstore.org/api"
 
 
 def test_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -36,16 +37,40 @@ def test_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_derived_api_urls() -> None:
-    settings = Settings(dockstore_url="https://qa.dockstore.org/")
-    assert settings.dockstore_url == "https://qa.dockstore.org"
-    assert settings.trs_url == "https://qa.dockstore.org/api/ga4gh/trs/v2"
-    assert settings.api_url == "https://qa.dockstore.org/api"
+    settings = Settings(dockstore_public_url="https://qa.dockstore.org/")
+    assert settings.dockstore_public_url == "https://qa.dockstore.org"
+    assert settings.dockstore_trs_url == "https://qa.dockstore.org/api/ga4gh/trs/v2"
+    assert settings.dockstore_api_url == "https://qa.dockstore.org/api"
 
 
 def test_derived_api_urls_omit_prefix_on_localhost() -> None:
-    settings = Settings(dockstore_url="http://localhost:8080/")
-    assert settings.trs_url == "http://localhost:8080/ga4gh/trs/v2"
-    assert settings.api_url == "http://localhost:8080"
+    settings = Settings(dockstore_public_url="http://localhost:8080/")
+    assert settings.dockstore_trs_url == "http://localhost:8080/ga4gh/trs/v2"
+    assert settings.dockstore_api_url == "http://localhost:8080"
+
+
+def test_explicit_api_url_is_used_as_given() -> None:
+    settings = Settings(
+        dockstore_public_url="https://qa.dockstore.org", dockstore_api_url="http://webservice.internal:8080/"
+    )
+    assert settings.dockstore_public_url == "https://qa.dockstore.org"
+    assert settings.dockstore_api_url == "http://webservice.internal:8080"
+    assert settings.dockstore_trs_url == "http://webservice.internal:8080/ga4gh/trs/v2"
+
+
+def test_urls_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DOCKSTORE_MCP_DOCKSTORE_PUBLIC_URL", "https://qa.dockstore.org")
+    monkeypatch.setenv("DOCKSTORE_MCP_DOCKSTORE_API_URL", "http://webservice:8080/api")
+    settings = Settings()
+    assert settings.dockstore_public_url == "https://qa.dockstore.org"
+    assert settings.dockstore_api_url == "http://webservice:8080/api"
+
+
+def test_empty_api_url_is_derived(monkeypatch: pytest.MonkeyPatch) -> None:
+    # e.g. an uncommented "DOCKSTORE_MCP_DOCKSTORE_API_URL=" in .env.
+    monkeypatch.setenv("DOCKSTORE_MCP_DOCKSTORE_API_URL", "")
+    settings = Settings(dockstore_public_url="https://qa.dockstore.org")
+    assert settings.dockstore_api_url == "https://qa.dockstore.org/api"
 
 
 def test_version_reports_the_git_ref(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -273,7 +273,7 @@ class TrsInfo(BaseModel):
     asked not to contact Dockstore.
     """
 
-    dockstore_url: str = Field(description="The Dockstore instance this server is configured to talk to.")
+    dockstore_url: str = Field(description="Public URL of the Dockstore instance this server is configured to talk to.")
     server_version: str = Field(
         description="Git tag or ref the answering server was built from, else its package version."
     )

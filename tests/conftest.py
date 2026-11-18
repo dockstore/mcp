@@ -38,7 +38,7 @@ def _isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
 @pytest.fixture
 def settings() -> Settings:
     """Settings that do not depend on the developer's environment."""
-    return Settings(dockstore_url="https://staging.dockstore.org/", transport="stdio")
+    return Settings(dockstore_public_url="https://staging.dockstore.org/", transport="stdio")
 
 
 @pytest.fixture

@@ -36,7 +36,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
 
-from dockstore_mcp.api import DockstoreApi, DockstoreError, NotFoundError
+from dockstore_mcp.api import TRS_PATH, DockstoreApi, DockstoreError, NotFoundError
 from dockstore_mcp.config import Settings
 from dockstore_mcp.models import (
     DescriptorLanguage,
@@ -373,7 +373,7 @@ async def _fetch_file(api: DockstoreApi, trs_id: str, name: str, path: str) -> t
 
 def _trs_version_endpoint(trs_id: str, name: str) -> str:
     """Where TRS serves a version, with the entry's identifier and the version name each as one segment."""
-    return f"/ga4gh/trs/v2/tools/{quote(trs_id, safe='')}/versions/{quote(name, safe='')}"
+    return f"{TRS_PATH}/tools/{quote(trs_id, safe='')}/versions/{quote(name, safe='')}"
 
 
 def _dockstore_id(payload: dict[str, Any]) -> str:
@@ -554,7 +554,7 @@ def _version_url(trs_id: str, name: Any, settings: Settings) -> str | None:
     prefix, path = _split_trs_id(trs_id)
     if not name or prefix not in _SITE_PATHS:
         return None
-    return f"{settings.dockstore_url}/{_SITE_PATHS[prefix]}/{path}:{name}"
+    return f"{settings.dockstore_public_url}/{_SITE_PATHS[prefix]}/{path}:{name}"
 
 
 def _facets(categories: Iterable[Any]) -> dict[str, list[str]]:
@@ -723,4 +723,4 @@ def _url(payload: dict[str, Any], settings: Settings) -> str | None:
     path = _first_of(payload, "full_workflow_path", "tool_path", "path")
     if not site_path or not path:
         return None
-    return f"{settings.dockstore_url}/{site_path}/{path}"
+    return f"{settings.dockstore_public_url}/{site_path}/{path}"
