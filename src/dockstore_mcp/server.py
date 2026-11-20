@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 #: root logger, which ``__main__`` points at stderr, since stdout belongs to the MCP protocol under stdio.
 TOOL_CALL_LOGGER = "dockstore_mcp.tool_calls"
 
+#: Longest a tool call's logged parameters (its name and arguments, as JSON) get before they're cut off with "...".
+MAX_LOGGED_PARAMS_LENGTH = 2000
+
 INSTRUCTIONS = """\
 Tools for working with Dockstore, a registry of bioinformatics tools and workflows.
 
@@ -52,6 +55,11 @@ def _tool_call_payload(params: mt.CallToolRequestParams) -> str:
 
 class _ToolCallLogging(StructuredLoggingMiddleware):
     """Structured logging that also records the address a call came from, when it came over HTTP."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # The structured variant never truncates payloads, though its base class can; turn that back on.
+        self.max_payload_length = MAX_LOGGED_PARAMS_LENGTH
 
     def _log_message(self, message: dict[str, str | int | float], log_level: int | None = None) -> None:
         try:

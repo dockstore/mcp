@@ -22,7 +22,7 @@ from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 from starlette.testclient import TestClient
 
-from dockstore_mcp.server import TOOL_CALL_LOGGER
+from dockstore_mcp.server import MAX_LOGGED_PARAMS_LENGTH, TOOL_CALL_LOGGER
 
 
 def _entries(caplog: pytest.LogCaptureFixture) -> list[tuple[int, dict[str, Any]]]:
@@ -54,6 +54,16 @@ async def test_a_failed_call_is_logged(client: Client[Any], caplog: pytest.LogCa
     assert level == logging.ERROR
     assert end["event"] == "request_error"
     assert "file_limit" in end["error"]
+
+
+async def test_long_params_are_truncated(client: Client[Any], caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger=TOOL_CALL_LOGGER)
+    async with client:
+        await client.call_tool("search_entries", {"query": "x" * 5000})
+    [(_, start), _] = _entries(caplog)
+    assert start["payload"].startswith('{"name":"search_entries"')
+    assert len(start["payload"]) == MAX_LOGGED_PARAMS_LENGTH + len("...")
+    assert start["payload"].endswith("x...")
 
 
 def test_an_http_call_is_logged_with_its_address(server: FastMCP, caplog: pytest.LogCaptureFixture) -> None:
