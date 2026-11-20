@@ -19,6 +19,7 @@ from typing import Any
 import mcp.types as mt
 from fastmcp import FastMCP
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+from fastmcp.server.middleware.logging import StructuredLoggingMiddleware
 from fastmcp.tools import ToolResult
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -31,12 +32,21 @@ __all__ = ["create_server", "mcp"]
 
 logger = logging.getLogger(__name__)
 
+#: Logs each tool call (its start, then its success or error and duration) as a line of JSON. It propagates to the
+#: root logger, which ``__main__`` points at stderr, since stdout belongs to the MCP protocol under stdio.
+TOOL_CALL_LOGGER = "dockstore_mcp.tool_calls"
+
 INSTRUCTIONS = """\
 Tools for working with Dockstore, a registry of bioinformatics tools and workflows.
 
 Dockstore descriptors are written in CWL, WDL, Nextflow, or Galaxy, and are served
 through both the GA4GH Tool Registry Service (TRS) API and Dockstore's own API.
 """
+
+
+def _tool_call_payload(params: mt.CallToolRequestParams) -> str:
+    """Serialize a tool call as just its tool's name and arguments, leaving out protocol fields."""
+    return params.model_dump_json(include={"name", "arguments"})
 
 
 class _ConnectPerToolCall(Middleware):
@@ -70,7 +80,16 @@ def create_server(settings: Settings | None = None, api: DockstoreApi | None = N
         version=settings.server_version,
         instructions=INSTRUCTIONS,
         website_url=settings.dockstore_public_url,
-        middleware=[_ConnectPerToolCall(api)],
+        middleware=[
+            # Outermost, so a call's duration includes connecting to Dockstore.
+            StructuredLoggingMiddleware(
+                logger=logging.getLogger(TOOL_CALL_LOGGER),
+                methods=["tools/call"],
+                include_payloads=True,
+                payload_serializer=_tool_call_payload,
+            ),
+            _ConnectPerToolCall(api),
+        ],
         # Unexpected exceptions can carry internal details, such as the API URL; only ToolErrors reach clients.
         mask_error_details=True,
     )
