@@ -46,14 +46,25 @@ async def test_a_successful_call_is_logged(client: Client[Any], caplog: pytest.L
     assert "client_address" not in start  # no network peer in memory or over stdio
 
 
-async def test_every_method_is_logged(client: Client[Any], caplog: pytest.LogCaptureFixture) -> None:
+async def test_only_tools_resources_and_prompts_methods_are_logged(
+    client: Client[Any], caplog: pytest.LogCaptureFixture
+) -> None:
     caplog.set_level(logging.INFO, logger=REQUEST_LOGGER)
-    async with client:
+    async with client:  # the handshake isn't logged
         await client.list_tools()
+        await client.list_resources()
+        await client.list_resource_templates()
+        await client.list_prompts()
         await client.call_tool("get_trs_info", {"local_only": True})
     starts = [entry for _, entry in _entries(caplog, None) if entry["event"] == "request_start"]
-    assert [entry["method"] for entry in starts][-2:] == ["tools/list", "tools/call"]
-    assert json.loads(starts[-2]["payload"]) == {"method": "tools/list"}
+    assert [entry["method"] for entry in starts] == [
+        "tools/list",
+        "resources/list",
+        "resources/templates/list",
+        "prompts/list",
+        "tools/call",
+    ]
+    assert json.loads(starts[0]["payload"]) == {"method": "tools/list"}
 
 
 async def test_a_failed_call_is_logged(client: Client[Any], caplog: pytest.LogCaptureFixture) -> None:
