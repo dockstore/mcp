@@ -11,7 +11,7 @@
 #    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
-"""Tests for the structured logging of tool calls."""
+"""Tests for the structured logging of MCP messages."""
 
 import json
 import logging
@@ -22,18 +22,19 @@ from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 from starlette.testclient import TestClient
 
-from dockstore_mcp.server import MAX_LOGGED_PARAMS_LENGTH, TOOL_CALL_LOGGER
+from dockstore_mcp.server import MAX_LOGGED_PARAMS_LENGTH, REQUEST_LOGGER
 
 
-def _entries(caplog: pytest.LogCaptureFixture) -> list[tuple[int, dict[str, Any]]]:
-    records = [record for record in caplog.records if record.name == TOOL_CALL_LOGGER]
-    return [(record.levelno, json.loads(record.getMessage())) for record in records]
+def _entries(caplog: pytest.LogCaptureFixture, method: str | None = "tools/call") -> list[tuple[int, dict[str, Any]]]:
+    """The logged entries for ``method`` (every method, if None), with their levels."""
+    records = [record for record in caplog.records if record.name == REQUEST_LOGGER]
+    entries = [(record.levelno, json.loads(record.getMessage())) for record in records]
+    return [(level, entry) for level, entry in entries if method is None or entry["method"] == method]
 
 
 async def test_a_successful_call_is_logged(client: Client[Any], caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.INFO, logger=TOOL_CALL_LOGGER)
+    caplog.set_level(logging.INFO, logger=REQUEST_LOGGER)
     async with client:
-        await client.list_tools()  # not a tool call, so not logged
         await client.call_tool("get_trs_info", {"local_only": True})
     [(start_level, start), (end_level, end)] = _entries(caplog)
     assert start_level == end_level == logging.INFO
@@ -45,8 +46,18 @@ async def test_a_successful_call_is_logged(client: Client[Any], caplog: pytest.L
     assert "client_address" not in start  # no network peer in memory or over stdio
 
 
+async def test_every_method_is_logged(client: Client[Any], caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger=REQUEST_LOGGER)
+    async with client:
+        await client.list_tools()
+        await client.call_tool("get_trs_info", {"local_only": True})
+    starts = [entry for _, entry in _entries(caplog, None) if entry["event"] == "request_start"]
+    assert [entry["method"] for entry in starts][-2:] == ["tools/list", "tools/call"]
+    assert json.loads(starts[-2]["payload"]) == {"method": "tools/list"}
+
+
 async def test_a_failed_call_is_logged(client: Client[Any], caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.INFO, logger=TOOL_CALL_LOGGER)
+    caplog.set_level(logging.INFO, logger=REQUEST_LOGGER)
     async with client:
         with pytest.raises(ToolError):
             await client.call_tool("get_version", {"version_id": 1, "file_limit": 0})
@@ -57,7 +68,7 @@ async def test_a_failed_call_is_logged(client: Client[Any], caplog: pytest.LogCa
 
 
 async def test_long_params_are_truncated(client: Client[Any], caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.INFO, logger=TOOL_CALL_LOGGER)
+    caplog.set_level(logging.INFO, logger=REQUEST_LOGGER)
     async with client:
         await client.call_tool("search_entries", {"query": "x" * 5000})
     [(_, start), _] = _entries(caplog)
@@ -67,7 +78,7 @@ async def test_long_params_are_truncated(client: Client[Any], caplog: pytest.Log
 
 
 def test_an_http_call_is_logged_with_its_address(server: FastMCP, caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.INFO, logger=TOOL_CALL_LOGGER)
+    caplog.set_level(logging.INFO, logger=REQUEST_LOGGER)
     with TestClient(server.http_app(stateless_http=True)) as http:
         response = http.post(
             "/mcp",

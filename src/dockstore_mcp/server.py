@@ -20,8 +20,9 @@ import mcp.types as mt
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_request
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
-from fastmcp.server.middleware.logging import StructuredLoggingMiddleware
+from fastmcp.server.middleware.logging import StructuredLoggingMiddleware, default_serializer
 from fastmcp.tools import ToolResult
+from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -33,11 +34,12 @@ __all__ = ["create_server", "mcp"]
 
 logger = logging.getLogger(__name__)
 
-#: Logs each tool call (its start, then its success or error and duration) as a line of JSON. It propagates to the
-#: root logger, which ``__main__`` points at stderr, since stdout belongs to the MCP protocol under stdio.
-TOOL_CALL_LOGGER = "dockstore_mcp.tool_calls"
+#: Logs each MCP message (a request's start, then its success or error and duration; a notification's likewise) as a
+#: line of JSON. It propagates to the root logger, which ``__main__`` points at stderr, since stdout belongs to the MCP
+#: protocol under stdio.
+REQUEST_LOGGER = "dockstore_mcp.requests"
 
-#: Longest a tool call's logged parameters (its name and arguments, as JSON) get before they're cut off with "...".
+#: Longest a message's logged parameters (as JSON) get before they're cut off with "...".
 MAX_LOGGED_PARAMS_LENGTH = 2000
 
 INSTRUCTIONS = """\
@@ -48,13 +50,15 @@ through both the GA4GH Tool Registry Service (TRS) API and Dockstore's own API.
 """
 
 
-def _tool_call_payload(params: mt.CallToolRequestParams) -> str:
-    """Serialize a tool call as just its tool's name and arguments, leaving out protocol fields."""
-    return params.model_dump_json(include={"name", "arguments"})
+def _params_payload(params: Any) -> str:
+    """Serialize a message's parameters, leaving out the many protocol fields that are usually unset."""
+    if isinstance(params, BaseModel):
+        return params.model_dump_json(by_alias=True, exclude_none=True)
+    return default_serializer(params)
 
 
-class _ToolCallLogging(StructuredLoggingMiddleware):
-    """Structured logging that also records the address a call came from, when it came over HTTP."""
+class _RequestLogging(StructuredLoggingMiddleware):
+    """Structured logging that also records the address a message came from, when it came over HTTP."""
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -104,11 +108,8 @@ def create_server(settings: Settings | None = None, api: DockstoreApi | None = N
         website_url=settings.dockstore_public_url,
         middleware=[
             # Outermost, so a call's duration includes connecting to Dockstore.
-            _ToolCallLogging(
-                logger=logging.getLogger(TOOL_CALL_LOGGER),
-                methods=["tools/call"],
-                include_payloads=True,
-                payload_serializer=_tool_call_payload,
+            _RequestLogging(
+                logger=logging.getLogger(REQUEST_LOGGER), include_payloads=True, payload_serializer=_params_payload
             ),
             _ConnectPerToolCall(api),
         ],
