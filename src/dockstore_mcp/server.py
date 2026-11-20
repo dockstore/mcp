@@ -18,6 +18,7 @@ from typing import Any
 
 import mcp.types as mt
 from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_http_request
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.server.middleware.logging import StructuredLoggingMiddleware
 from fastmcp.tools import ToolResult
@@ -47,6 +48,19 @@ through both the GA4GH Tool Registry Service (TRS) API and Dockstore's own API.
 def _tool_call_payload(params: mt.CallToolRequestParams) -> str:
     """Serialize a tool call as just its tool's name and arguments, leaving out protocol fields."""
     return params.model_dump_json(include={"name", "arguments"})
+
+
+class _ToolCallLogging(StructuredLoggingMiddleware):
+    """Structured logging that also records the address a call came from, when it came over HTTP."""
+
+    def _log_message(self, message: dict[str, str | int | float], log_level: int | None = None) -> None:
+        try:
+            client = get_http_request().client
+        except RuntimeError:  # not over HTTP (stdio, or in memory): there's no address to log
+            client = None
+        if client is not None:
+            message["client_address"] = client.host
+        super()._log_message(message, log_level)
 
 
 class _ConnectPerToolCall(Middleware):
@@ -82,7 +96,7 @@ def create_server(settings: Settings | None = None, api: DockstoreApi | None = N
         website_url=settings.dockstore_public_url,
         middleware=[
             # Outermost, so a call's duration includes connecting to Dockstore.
-            StructuredLoggingMiddleware(
+            _ToolCallLogging(
                 logger=logging.getLogger(TOOL_CALL_LOGGER),
                 methods=["tools/call"],
                 include_payloads=True,

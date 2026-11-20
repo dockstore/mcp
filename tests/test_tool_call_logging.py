@@ -18,8 +18,9 @@ import logging
 from typing import Any
 
 import pytest
-from fastmcp import Client
+from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
+from starlette.testclient import TestClient
 
 from dockstore_mcp.server import TOOL_CALL_LOGGER
 
@@ -41,6 +42,7 @@ async def test_a_successful_call_is_logged(client: Client[Any], caplog: pytest.L
     assert json.loads(start["payload"]) == {"name": "get_trs_info", "arguments": {"local_only": True}}
     assert end["event"] == "request_success"
     assert isinstance(end["duration_ms"], float)
+    assert "client_address" not in start  # no network peer in memory or over stdio
 
 
 async def test_a_failed_call_is_logged(client: Client[Any], caplog: pytest.LogCaptureFixture) -> None:
@@ -52,3 +54,21 @@ async def test_a_failed_call_is_logged(client: Client[Any], caplog: pytest.LogCa
     assert level == logging.ERROR
     assert end["event"] == "request_error"
     assert "file_limit" in end["error"]
+
+
+def test_an_http_call_is_logged_with_its_address(server: FastMCP, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger=TOOL_CALL_LOGGER)
+    with TestClient(server.http_app(stateless_http=True)) as http:
+        response = http.post(
+            "/mcp",
+            headers={"accept": "application/json, text/event-stream", "mcp-protocol-version": "2025-06-18"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "get_trs_info", "arguments": {"local_only": True}},
+            },
+        )
+    assert response.status_code == 200
+    [(_, start), (_, end)] = _entries(caplog)
+    assert start["client_address"] == end["client_address"] == "testclient"
