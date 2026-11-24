@@ -18,8 +18,11 @@ from typing import Any
 
 import mcp.types as mt
 from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_http_request
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+from fastmcp.server.middleware.logging import StructuredLoggingMiddleware, default_serializer
 from fastmcp.tools import ToolResult
+from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -31,12 +34,54 @@ __all__ = ["create_server", "mcp"]
 
 logger = logging.getLogger(__name__)
 
+#: Logs each MCP request for tools, resources, or prompts (its start, then its success or error and duration) as a
+#: line of JSON. It propagates to the root logger, which ``__main__`` points at stderr, since stdout belongs to the MCP
+#: protocol under stdio.
+REQUEST_LOGGER = "dockstore_mcp.requests"
+
+#: Longest a message's logged parameters (as JSON) get before they're cut off with "...".
+MAX_LOGGED_PARAMS_LENGTH = 2000
+
+#: The groups of MCP methods that get logged, by their first path segment (``tools/call`` is in ``tools``); the
+#: handshake, pings, notifications, and so on aren't.
+LOGGED_METHOD_GROUPS = frozenset({"tools", "resources", "prompts"})
+
 INSTRUCTIONS = """\
 Tools for working with Dockstore, a registry of bioinformatics tools and workflows.
 
 Dockstore descriptors are written in CWL, WDL, Nextflow, or Galaxy, and are served
 through both the GA4GH Tool Registry Service (TRS) API and Dockstore's own API.
 """
+
+
+def _params_payload(params: Any) -> str:
+    """Serialize a message's parameters, leaving out the many protocol fields that are usually unset."""
+    if isinstance(params, BaseModel):
+        return params.model_dump_json(by_alias=True, exclude_none=True)
+    return default_serializer(params)
+
+
+class _RequestLogging(StructuredLoggingMiddleware):
+    """Structured logging that also records the address a message came from, when it came over HTTP."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # The structured variant never truncates payloads, though its base class can; turn that back on.
+        self.max_payload_length = MAX_LOGGED_PARAMS_LENGTH
+
+    async def on_message(self, context: MiddlewareContext[Any], call_next: CallNext[Any, Any]) -> Any:
+        if (context.method or "").split("/")[0] not in LOGGED_METHOD_GROUPS:
+            return await call_next(context)
+        return await super().on_message(context, call_next)
+
+    def _log_message(self, message: dict[str, str | int | float], log_level: int | None = None) -> None:
+        try:
+            client = get_http_request().client
+        except RuntimeError:  # not over HTTP (stdio, or in memory): there's no address to log
+            client = None
+        if client is not None:
+            message["client_address"] = client.host
+        super()._log_message(message, log_level)
 
 
 class _ConnectPerToolCall(Middleware):
@@ -70,7 +115,13 @@ def create_server(settings: Settings | None = None, api: DockstoreApi | None = N
         version=settings.server_version,
         instructions=INSTRUCTIONS,
         website_url=settings.dockstore_public_url,
-        middleware=[_ConnectPerToolCall(api)],
+        middleware=[
+            # Outermost, so a call's duration includes connecting to Dockstore.
+            _RequestLogging(
+                logger=logging.getLogger(REQUEST_LOGGER), include_payloads=True, payload_serializer=_params_payload
+            ),
+            _ConnectPerToolCall(api),
+        ],
         # Unexpected exceptions can carry internal details, such as the API URL; only ToolErrors reach clients.
         mask_error_details=True,
     )
