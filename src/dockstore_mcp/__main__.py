@@ -18,6 +18,8 @@ import logging
 import sys
 from collections.abc import Sequence
 
+import fastmcp
+
 from dockstore_mcp import __version__
 from dockstore_mcp.config import Settings, get_settings
 from dockstore_mcp.server import create_server
@@ -63,20 +65,28 @@ def _settings_from(args: argparse.Namespace) -> Settings:
     return Settings(**overrides)
 
 
+def _configure_logging(level: str) -> None:
+    """Send every log line, the libraries' included, to stderr in one format: time, level, logger, message."""
+    # stdout belongs to the MCP protocol under the stdio transport, so log to stderr.
+    logging.basicConfig(level=level, stream=sys.stderr, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+    # FastMCP gives its logger a Rich handler of its own (on import, and again when the server starts) and stops it
+    # propagating; turn that off and undo what the import already did.
+    fastmcp.settings.log_enabled = False
+    fastmcp_logger = logging.getLogger("fastmcp")
+    for handler in fastmcp_logger.handlers[:]:
+        fastmcp_logger.removeHandler(handler)
+    fastmcp_logger.propagate = True
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the server until it is interrupted."""
     settings = _settings_from(_parse_args(argv))
 
-    # stdout belongs to the MCP protocol under the stdio transport, so log to stderr.
-    logging.basicConfig(
-        level=settings.log_level,
-        stream=sys.stderr,
-        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-    )
+    _configure_logging(settings.log_level)
 
     server = create_server(settings)
     if settings.transport == "stdio":
-        server.run(transport="stdio")
+        server.run(transport="stdio", show_banner=False)
     else:
         server.run(
             transport="http",
@@ -86,6 +96,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             log_level=settings.log_level,
             # No tool needs a session, and without one any replica can answer any request.
             stateless_http=True,
+            show_banner=False,
+            # Leave uvicorn's loggers unconfigured, so they propagate to the root logger and share its format.
+            uvicorn_config={"log_config": None},
         )
     return 0
 
